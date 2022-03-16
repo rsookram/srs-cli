@@ -1,3 +1,4 @@
+use crate::select;
 use anyhow::Result;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -33,31 +34,9 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
         .filter_map(|card| card.ok())
         .collect();
 
-    let skim_options = SkimOptionsBuilder::default()
-        .height(Some("100%"))
-        .build()
-        .unwrap();
-
-    let receiver = cards_to_receiver(&cards);
-
-    if let Some(output) = Skim::run_with(&skim_options, Some(receiver))
-        .filter(|out| !out.is_abort)
-        .map(|out| out.selected_items)
-    {
-        if let Some(item) = output.first() {
-            let selected_card = (**item).as_any().downcast_ref::<Card>().unwrap();
-            println!("{}", selected_card.front);
-        }
+    if let Some(Card { front }) = select::skim(&cards) {
+        println!("{}", front);
     }
 
     Ok(())
-}
-
-fn cards_to_receiver(items: &[Card]) -> SkimItemReceiver {
-    let (tx_items, rx_items): (SkimItemSender, SkimItemReceiver) = unbounded();
-    items.iter().for_each(|card| {
-        let _ = tx_items.send(Arc::new(card.to_owned()));
-    });
-    drop(tx_items); // indicates that all items have been sent
-    rx_items
 }
