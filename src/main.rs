@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use clap::Subcommand;
+use srs_cli::add;
 use srs_cli::delete;
 use srs_cli::search;
 use srs_cli::stats;
@@ -18,6 +19,7 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    Add,
     Delete,
     Search,
     Stats,
@@ -27,6 +29,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match &args.command {
+        Commands::Add => add::run(&args.path),
         Commands::Delete => delete::run(&args.path),
         Commands::Stats => stats::run(&args.path),
         Commands::Search => search::run(&args.path),
