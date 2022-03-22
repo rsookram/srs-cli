@@ -3,6 +3,7 @@ use clap::Parser;
 use clap::Subcommand;
 use srs_cli::add;
 use srs_cli::delete;
+use srs_cli::edit;
 use srs_cli::search;
 use srs_cli::stats;
 use std::path::PathBuf;
@@ -20,6 +21,7 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Add,
+    Edit,
     Delete,
     Search,
     Stats,
@@ -30,6 +32,7 @@ fn main() -> Result<()> {
 
     match &args.command {
         Commands::Add => add::run(&args.path),
+        Commands::Edit => edit::run(&args.path),
         Commands::Delete => delete::run(&args.path),
         Commands::Stats => stats::run(&args.path),
         Commands::Search => search::run(&args.path),
