@@ -1,4 +1,5 @@
 use crate::select;
+use anyhow::anyhow;
 use anyhow::Result;
 use chrono::Utc;
 use rusqlite::params;
@@ -32,13 +33,11 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
 
         let now = Utc::now().timestamp_millis();
 
-        // TODO: Try to use RETURNING clause
-        tx.execute(
-            "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?)",
+        let card_id: u64 = tx.query_row(
+            "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?) RETURNING *",
             params![deck.id, front, back, now],
+            |row| row.get(0),
         )?;
-
-        let card_id = tx.last_insert_rowid();
 
         tx.execute(
             "INSERT INTO Schedule(cardId, scheduledForTimestamp, intervalDays) VALUES (?, ?, ?)",
@@ -79,8 +78,15 @@ fn read_card() -> Result<(String, String)> {
 
     let output = scrawl::with(&template)?;
 
-    // TODO: Handle divider absence
-    let (front, back) = output.split_once(divider).unwrap();
-
-    Ok((front.trim().to_string(), back.trim().to_string()))
+    output
+        .split_once(divider)
+        .map(|(front, back)| (front.trim().to_string(), back.trim().to_string()))
+        .ok_or(anyhow!("Missing divider between front and back of card"))
+        .and_then(|(front, back)| {
+            if front.is_empty() {
+                Err(anyhow!("Can't add card without text on the front"))
+            } else {
+                Ok((front, back))
+            }
+        })
 }
