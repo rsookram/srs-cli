@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0.56"
 chrono = "0.4.19"
 clap = {version = "3.1.6", features = ["derive"]}
-dialoguer = "0.10.0"
+dialoguer = {version = "0.10.0", default-features = false}
 rusqlite = {version = "0.27.0", features = ["bundled"]}
 scrawl = "1.1.0"
 skim = "0.9.4"
