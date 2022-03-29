@@ -4,6 +4,7 @@ use clap::Subcommand;
 use srs_cli::add;
 use srs_cli::delete;
 use srs_cli::edit;
+use srs_cli::review;
 use srs_cli::search;
 use srs_cli::stats;
 use std::path::PathBuf;
@@ -23,6 +24,7 @@ enum Commands {
     Add,
     Edit,
     Delete,
+    Review,
     Search,
     Stats,
 }
@@ -34,6 +36,7 @@ fn main() -> Result<()> {
         Commands::Add => add::run(&args.path),
         Commands::Edit => edit::run(&args.path),
         Commands::Delete => delete::run(&args.path),
+        Commands::Review => review::run(&args.path),
         Commands::Stats => stats::run(&args.path),
         Commands::Search => search::run(&args.path),
     }
