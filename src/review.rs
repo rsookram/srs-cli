@@ -1,6 +1,8 @@
 use anyhow::Result;
 use chrono::Duration;
+use chrono::Local;
 use chrono::Utc;
+use rand::seq::SliceRandom;
 use rand::Rng;
 use rusqlite::params;
 use rusqlite::types::Null;
@@ -13,10 +15,100 @@ const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
 const FUZZ_FACTOR: f64 = 0.05; // TODO: consider increasing
 const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
-pub fn run(db_path: &PathBuf) -> Result<()> {
-    let conn = Connection::open(db_path)?;
+#[derive(Debug)]
+struct Card {
+    deck_name: String,
+    id: u64,
+    front: String,
+    back: String,
+}
 
-    todo!()
+pub fn run(db_path: &PathBuf) -> Result<()> {
+    let mut conn = Connection::open(db_path)?;
+
+    let cards = get_cards(&mut conn)?;
+
+    println!("{} cards to review", cards.len());
+
+    let cards = cards_to_review(cards);
+
+    for (deck_name, cards) in cards {
+        let num_cards = cards.len();
+
+        println!("{num_cards} cards to review in {deck_name}");
+
+        let num_correct = 0;
+
+        for card in cards {
+            todo!();
+        }
+
+        println!("Answered {num_correct}/{num_cards} correctly")
+    }
+
+    println!("Finished review");
+
+    Ok(())
+}
+
+fn get_cards(conn: &mut Connection) -> Result<Vec<Card>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT Deck.name, Card.id, Card.front, Card.back
+        FROM Card JOIN Schedule ON Card.id = Schedule.cardId JOIN Deck ON Card.deckId = Deck.id
+        WHERE isLeech = 0 AND scheduledForTimestamp < ?
+        ORDER BY Card.deckId, scheduledForTimestamp
+        ",
+    )?;
+
+    let start_of_tomorrow = Local::today().succ().and_hms(0, 0, 0).timestamp_millis();
+
+    let card_iter = stmt.query_map([start_of_tomorrow], |row| {
+        Ok(Card {
+            deck_name: row.get(0)?,
+            id: row.get(1)?,
+            front: row.get(2)?,
+            back: row.get(3)?,
+        })
+    })?;
+
+    let mut cards = vec![];
+    for card in card_iter {
+        cards.push(card?);
+    }
+
+    Ok(cards)
+}
+
+fn cards_to_review(cards: Vec<Card>) -> Vec<(String, Vec<Card>)> {
+    if cards.is_empty() {
+        return vec![];
+    }
+
+    let mut rng = rand::thread_rng();
+
+    let mut cards_by_deck = vec![];
+
+    let mut current_deck = cards[0].deck_name.clone();
+    let mut current_cards = vec![];
+    for card in cards {
+        if card.deck_name != current_deck {
+            let deck_name = std::mem::take(&mut current_deck);
+            let mut cards = std::mem::take(&mut current_cards);
+
+            cards.shuffle(&mut rng);
+            cards_by_deck.push((deck_name, cards));
+
+            current_deck = card.deck_name.clone();
+        }
+
+        current_cards.push(card);
+    }
+
+    current_cards.shuffle(&mut rng);
+    cards_by_deck.push((current_deck, current_cards));
+
+    cards_by_deck
 }
 
 fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
