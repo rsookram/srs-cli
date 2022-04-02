@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::Duration;
 use chrono::Local;
 use chrono::Utc;
+use dialoguer::Confirm;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rusqlite::params;
@@ -28,19 +29,27 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
 
     let cards = get_cards(&mut conn)?;
 
-    println!("{} cards to review", cards.len());
+    println!("{} cards to review\n", cards.len());
 
     let cards = cards_to_review(cards);
 
     for (deck_name, cards) in cards {
         let num_cards = cards.len();
 
-        println!("{num_cards} cards to review in {deck_name}");
+        println!("{num_cards} cards to review in {deck_name}\n");
 
-        let num_correct = 0;
+        let mut num_correct = 0;
 
         for card in cards {
-            todo!();
+            let is_correct = review_card(&card)?;
+            if is_correct {
+                num_correct += 1;
+                answer_correct(&mut conn, card.id)?;
+            } else {
+                answer_wrong(&mut conn, card.id)?;
+            }
+
+            println!();
         }
 
         println!("Answered {num_correct}/{num_cards} correctly")
@@ -109,6 +118,23 @@ fn cards_to_review(cards: Vec<Card>) -> Vec<(String, Vec<Card>)> {
     cards_by_deck.push((current_deck, current_cards));
 
     cards_by_deck
+}
+
+fn review_card(card: &Card) -> Result<bool> {
+    println!("{}\n", &card.front);
+
+    Confirm::new()
+        .with_prompt("Press enter to show answer")
+        .default(true)
+        .show_default(false)
+        .report(false)
+        .interact()?;
+
+    println!("{}", "-".repeat(79));
+
+    println!("{}\n", &card.back);
+
+    Ok(Confirm::new().with_prompt("Correct?").interact()?)
 }
 
 fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
