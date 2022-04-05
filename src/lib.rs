@@ -1,4 +1,5 @@
 pub mod add;
+pub mod createdeck;
 pub mod delete;
 pub mod edit;
 pub mod intmod;
