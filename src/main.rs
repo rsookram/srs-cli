@@ -4,6 +4,7 @@ use clap::Subcommand;
 use srs_cli::add;
 use srs_cli::createdeck;
 use srs_cli::delete;
+use srs_cli::deletedeck;
 use srs_cli::edit;
 use srs_cli::intmod;
 use srs_cli::review;
@@ -26,6 +27,7 @@ enum Commands {
     Add,
     CreateDeck { name: String },
     Delete,
+    DeleteDeck,
     Edit,
     IntMod,
     Review,
@@ -40,6 +42,7 @@ fn main() -> Result<()> {
         Commands::Add => add::run(&args.path),
         Commands::CreateDeck { name } => createdeck::run(&args.path, name),
         Commands::Delete => delete::run(&args.path),
+        Commands::DeleteDeck => deletedeck::run(&args.path),
         Commands::Edit => edit::run(&args.path),
         Commands::IntMod => intmod::run(&args.path),
         Commands::Review => review::run(&args.path),
