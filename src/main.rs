@@ -6,6 +6,7 @@ use srs_cli::createdeck;
 use srs_cli::delete;
 use srs_cli::deletedeck;
 use srs_cli::edit;
+use srs_cli::init;
 use srs_cli::intmod;
 use srs_cli::review;
 use srs_cli::search;
@@ -29,6 +30,7 @@ enum Commands {
     Delete,
     DeleteDeck,
     Edit,
+    Init,
     IntMod,
     Review,
     Search,
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
         Commands::Delete => delete::run(&args.path),
         Commands::DeleteDeck => deletedeck::run(&args.path),
         Commands::Edit => edit::run(&args.path),
+        Commands::Init => init::run(&args.path),
         Commands::IntMod => intmod::run(&args.path),
         Commands::Review => review::run(&args.path),
         Commands::Stats => stats::run(&args.path),
