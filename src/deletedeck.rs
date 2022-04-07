@@ -1,6 +1,7 @@
 use crate::select;
 use anyhow::Result;
 use dialoguer::Confirm;
+use rusqlite::config::DbConfig;
 use rusqlite::Connection;
 use skim::prelude::*;
 use skim::SkimItem;
@@ -20,6 +21,7 @@ impl SkimItem for Deck {
 
 pub fn run(db_path: &PathBuf) -> Result<()> {
     let conn = Connection::open(db_path)?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
     let mut stmt = conn.prepare("SELECT id, name FROM Deck")?;
 

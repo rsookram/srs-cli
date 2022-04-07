@@ -2,6 +2,7 @@ use crate::editor;
 use crate::select;
 use anyhow::Result;
 use chrono::Utc;
+use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::Connection;
 use skim::prelude::*;
@@ -22,6 +23,7 @@ impl SkimItem for Deck {
 
 pub fn run(db_path: &PathBuf) -> Result<()> {
     let mut conn = Connection::open(db_path)?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
     let decks = get_decks(&conn)?;
 

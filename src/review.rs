@@ -5,6 +5,7 @@ use chrono::Utc;
 use dialoguer::Confirm;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::types::Null;
 use rusqlite::Connection;
@@ -26,6 +27,7 @@ struct Card {
 
 pub fn run(db_path: &PathBuf) -> Result<()> {
     let mut conn = Connection::open(db_path)?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
     let cards = get_cards(&mut conn)?;
 
