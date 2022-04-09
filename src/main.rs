@@ -11,6 +11,7 @@ use srs_cli::intmod;
 use srs_cli::review;
 use srs_cli::search;
 use srs_cli::stats;
+use srs_cli::switch;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -35,6 +36,7 @@ enum Commands {
     Review,
     Search,
     Stats,
+    Switch,
 }
 
 fn main() -> Result<()> {
@@ -51,5 +53,6 @@ fn main() -> Result<()> {
         Commands::Review => review::run(&args.path),
         Commands::Stats => stats::run(&args.path),
         Commands::Search => search::run(&args.path),
+        Commands::Switch => switch::run(&args.path),
     }
 }

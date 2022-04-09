@@ -8,6 +8,7 @@ pub mod intmod;
 pub mod review;
 pub mod search;
 pub mod stats;
+pub mod switch;
 
 mod editor;
 mod select;
