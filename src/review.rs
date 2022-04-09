@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::Duration;
 use chrono::Local;
 use chrono::Utc;
+use dialoguer::theme::Theme;
 use dialoguer::Confirm;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -125,7 +126,7 @@ fn cards_to_review(cards: Vec<Card>) -> Vec<(String, Vec<Card>)> {
 fn review_card(card: &Card) -> Result<bool> {
     println!("{}\n", &card.front);
 
-    Confirm::new()
+    Confirm::with_theme(&PlainPrompt)
         .with_prompt("Press enter to show answer")
         .default(true)
         .show_default(false)
@@ -137,6 +138,20 @@ fn review_card(card: &Card) -> Result<bool> {
     println!("{}\n", &card.back);
 
     Ok(Confirm::new().with_prompt("Correct?").interact()?)
+}
+
+struct PlainPrompt;
+
+impl Theme for PlainPrompt {
+    /// Formats a confirm prompt without a trailing "[y/n]"
+    fn format_confirm_prompt(
+        &self,
+        f: &mut dyn std::fmt::Write,
+        prompt: &str,
+        _default: Option<bool>,
+    ) -> std::fmt::Result {
+        write!(f, "{}", &prompt)
+    }
 }
 
 fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
