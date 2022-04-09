@@ -11,11 +11,16 @@ use std::path::PathBuf;
 struct Card {
     id: u64,
     front: String,
+    is_leech: bool,
 }
 
 impl SkimItem for Card {
     fn text(&self) -> std::borrow::Cow<str> {
-        Cow::from(&self.front)
+        if self.is_leech {
+            Cow::from(format!("[leech] {}", self.front))
+        } else {
+            Cow::from(&self.front)
+        }
     }
 }
 
@@ -25,7 +30,7 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
 
     let mut stmt = conn.prepare(
         "
-        SELECT id, front
+        SELECT id, front, isLeech
         FROM Card
         JOIN Schedule ON Card.id = Schedule.cardId
         ORDER BY isLeech DESC, creationTimestamp DESC;
@@ -37,12 +42,13 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
             Ok(Card {
                 id: row.get(0)?,
                 front: row.get(1)?,
+                is_leech: row.get(2)?,
             })
         })?
         .filter_map(|card| card.ok())
         .collect();
 
-    if let Some(Card { id, front }) = select::skim(&cards) {
+    if let Some(Card { id, front, .. }) = select::skim(&cards) {
         if Confirm::new()
             .with_prompt(format!(
                 "Are you sure you want to delete '{}'",

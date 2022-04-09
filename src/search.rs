@@ -24,7 +24,6 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
         "
         SELECT front
         FROM Card
-        JOIN Schedule ON Card.id = Schedule.cardId
         ORDER BY creationTimestamp DESC;
         ",
     )?;
