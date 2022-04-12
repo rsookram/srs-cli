@@ -15,7 +15,6 @@ use std::path::PathBuf;
 
 const AUTO_SUSPEND_INTERVAL: u16 = 365;
 const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
-const FUZZ_FACTOR: f64 = 0.05; // TODO: consider increasing
 const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
 #[derive(Debug)]
@@ -260,8 +259,7 @@ fn next_interval(previous_interval: u16, was_correct: Option<bool>, interval_mod
 
                 let mut rng = rand::thread_rng();
 
-                // TODO: Is this supposed to be fuzz of previous or next?
-                let max_fuzz = (previous_interval as f64 * FUZZ_FACTOR) as u16;
+                let max_fuzz = (previous_interval as f64 * fuzz_factor(previous_interval)) as u16;
                 let fuzz = rng.gen_range(0..=max_fuzz);
 
                 if rng.gen() {
@@ -276,5 +274,15 @@ fn next_interval(previous_interval: u16, was_correct: Option<bool>, interval_mod
                 std::cmp::max(1, (previous_interval as f64 * WRONG_ANSWER_PENALTY) as u16)
             }
         }
+    }
+}
+
+fn fuzz_factor(previous_interval: u16) -> f64 {
+    if previous_interval < 7 {
+        0.25
+    } else if previous_interval < 30 {
+        0.15
+    } else {
+        0.05
     }
 }
