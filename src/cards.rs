@@ -7,6 +7,7 @@ use std::path::PathBuf;
 struct Card {
     id: u64,
     front: String,
+    is_leech: bool,
 }
 
 pub fn run(db_path: &PathBuf) -> Result<()> {
@@ -14,9 +15,10 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
 
     let mut stmt = conn.prepare(
         "
-        SELECT id, front
+        SELECT id, front, isLeech
         FROM Card
-        ORDER BY creationTimestamp DESC;
+        JOIN Schedule ON Card.id = Schedule.cardId
+        ORDER BY isLeech DESC, creationTimestamp DESC;
         ",
     )?;
 
@@ -24,12 +26,19 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
         Ok(Card {
             id: row.get(0)?,
             front: row.get(1)?,
+            is_leech: row.get(2)?,
         })
     })?;
 
     for card in card_iter {
         let card = card?;
-        println!("{} {}", card.id, card.front.replace('\n', ""));
+        let front = card.front.replace('\n', "");
+
+        if card.is_leech {
+            println!("[leech] {} {}", card.id, front);
+        } else {
+            println!("{} {}", card.id, front);
+        }
     }
 
     Ok(())

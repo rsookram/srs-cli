@@ -12,4 +12,3 @@ pub mod stats;
 pub mod switch;
 
 mod editor;
-mod select;

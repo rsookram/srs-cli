@@ -27,35 +27,35 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    Add,
+    Add { deck_id: u64 },
     Cards,
     CreateDeck { name: String },
     Decks,
-    Delete,
-    DeleteDeck,
-    Edit,
+    Delete { card_id: u64 },
+    DeleteDeck { deck_id: u64 },
+    Edit { card_id: u64 },
     Init,
-    IntMod,
+    IntMod { deck_id: u64, modifier: u16 },
     Review,
     Stats,
-    Switch,
+    Switch { card_id: u64, deck_id: u64 },
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     match &args.command {
-        Commands::Add => add::run(&args.path),
+        Commands::Add { deck_id } => add::run(&args.path, *deck_id),
         Commands::Cards => cards::run(&args.path),
         Commands::CreateDeck { name } => createdeck::run(&args.path, name),
         Commands::Decks => decks::run(&args.path),
-        Commands::Delete => delete::run(&args.path),
-        Commands::DeleteDeck => deletedeck::run(&args.path),
-        Commands::Edit => edit::run(&args.path),
+        Commands::Delete { card_id } => delete::run(&args.path, *card_id),
+        Commands::DeleteDeck { deck_id } => deletedeck::run(&args.path, *deck_id),
+        Commands::Edit { card_id } => edit::run(&args.path, *card_id),
         Commands::Init => init::run(&args.path),
-        Commands::IntMod => intmod::run(&args.path),
+        Commands::IntMod { deck_id, modifier } => intmod::run(&args.path, *deck_id, *modifier),
         Commands::Review => review::run(&args.path),
         Commands::Stats => stats::run(&args.path),
-        Commands::Switch => switch::run(&args.path),
+        Commands::Switch { card_id, deck_id } => switch::run(&args.path, *card_id, *deck_id),
     }
 }

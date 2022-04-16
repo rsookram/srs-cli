@@ -1,64 +1,27 @@
-use crate::select;
 use anyhow::Result;
 use dialoguer::Confirm;
 use rusqlite::config::DbConfig;
 use rusqlite::Connection;
-use skim::prelude::*;
-use skim::SkimItem;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
-struct Card {
-    id: u64,
-    front: String,
-    is_leech: bool,
-}
-
-impl SkimItem for Card {
-    fn text(&self) -> std::borrow::Cow<str> {
-        if self.is_leech {
-            Cow::from(format!("[leech] {}", self.front))
-        } else {
-            Cow::from(&self.front)
-        }
-    }
-}
-
-pub fn run(db_path: &PathBuf) -> Result<()> {
+pub fn run(db_path: &PathBuf, card_id: u64) -> Result<()> {
     let conn = Connection::open(db_path)?;
     conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
-    let mut stmt = conn.prepare(
-        "
-        SELECT id, front, isLeech
-        FROM Card
-        JOIN Schedule ON Card.id = Schedule.cardId
-        ORDER BY isLeech DESC, creationTimestamp DESC;
-        ",
-    )?;
+    let front: String =
+        conn.query_row("SELECT front FROM Card WHERE id = ?", [card_id], |row| {
+            row.get(0)
+        })?;
 
-    let cards: Vec<Card> = stmt
-        .query_map([], |row| {
-            Ok(Card {
-                id: row.get(0)?,
-                front: row.get(1)?,
-                is_leech: row.get(2)?,
-            })
-        })?
-        .filter_map(|card| card.ok())
-        .collect();
-
-    if let Some(Card { id, front, .. }) = select::skim(&cards) {
-        if Confirm::new()
-            .with_prompt(format!(
-                "Are you sure you want to delete '{}'",
-                front.replace('\n', " ")
-            ))
-            .interact()?
-        {
-            conn.execute("DELETE FROM Card WHERE id = ?", [id])?;
-            println!("... deleted.");
-        }
+    if Confirm::new()
+        .with_prompt(format!(
+            "Are you sure you want to delete '{}'",
+            front.replace('\n', " ")
+        ))
+        .interact()?
+    {
+        conn.execute("DELETE FROM Card WHERE id = ?", [card_id])?;
+        println!("... deleted.");
     }
 
     Ok(())
