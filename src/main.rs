@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use clap::Subcommand;
 use srs_cli::add;
+use srs_cli::cards;
 use srs_cli::createdeck;
 use srs_cli::decks;
 use srs_cli::delete;
@@ -10,7 +11,6 @@ use srs_cli::edit;
 use srs_cli::init;
 use srs_cli::intmod;
 use srs_cli::review;
-use srs_cli::search;
 use srs_cli::stats;
 use srs_cli::switch;
 use std::path::PathBuf;
@@ -28,6 +28,7 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Add,
+    Cards,
     CreateDeck { name: String },
     Decks,
     Delete,
@@ -36,7 +37,6 @@ enum Commands {
     Init,
     IntMod,
     Review,
-    Search,
     Stats,
     Switch,
 }
@@ -46,6 +46,7 @@ fn main() -> Result<()> {
 
     match &args.command {
         Commands::Add => add::run(&args.path),
+        Commands::Cards => cards::run(&args.path),
         Commands::CreateDeck { name } => createdeck::run(&args.path, name),
         Commands::Decks => decks::run(&args.path),
         Commands::Delete => delete::run(&args.path),
@@ -55,7 +56,6 @@ fn main() -> Result<()> {
         Commands::IntMod => intmod::run(&args.path),
         Commands::Review => review::run(&args.path),
         Commands::Stats => stats::run(&args.path),
-        Commands::Search => search::run(&args.path),
         Commands::Switch => switch::run(&args.path),
     }
 }

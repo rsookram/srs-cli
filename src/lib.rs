@@ -1,4 +1,5 @@
 pub mod add;
+pub mod cards;
 pub mod createdeck;
 pub mod decks;
 pub mod delete;
@@ -7,7 +8,6 @@ pub mod edit;
 pub mod init;
 pub mod intmod;
 pub mod review;
-pub mod search;
 pub mod stats;
 pub mod switch;
 
