@@ -3,6 +3,7 @@ use clap::Parser;
 use clap::Subcommand;
 use srs_cli::add;
 use srs_cli::createdeck;
+use srs_cli::decks;
 use srs_cli::delete;
 use srs_cli::deletedeck;
 use srs_cli::edit;
@@ -28,6 +29,7 @@ struct Args {
 enum Commands {
     Add,
     CreateDeck { name: String },
+    Decks,
     Delete,
     DeleteDeck,
     Edit,
@@ -45,6 +47,7 @@ fn main() -> Result<()> {
     match &args.command {
         Commands::Add => add::run(&args.path),
         Commands::CreateDeck { name } => createdeck::run(&args.path, name),
+        Commands::Decks => decks::run(&args.path),
         Commands::Delete => delete::run(&args.path),
         Commands::DeleteDeck => deletedeck::run(&args.path),
         Commands::Edit => edit::run(&args.path),

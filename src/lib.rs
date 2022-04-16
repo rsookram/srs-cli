@@ -1,5 +1,6 @@
 pub mod add;
 pub mod createdeck;
+pub mod decks;
 pub mod delete;
 pub mod deletedeck;
 pub mod edit;
