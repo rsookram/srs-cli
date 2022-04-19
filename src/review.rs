@@ -1,7 +1,4 @@
 use anyhow::Result;
-use chrono::Duration;
-use chrono::Local;
-use chrono::Utc;
 use dialoguer::theme::Theme;
 use dialoguer::Confirm;
 use rand::seq::SliceRandom;
@@ -12,6 +9,8 @@ use rusqlite::types::Null;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use std::path::PathBuf;
+use time::Duration;
+use time::OffsetDateTime;
 
 const AUTO_SUSPEND_INTERVAL: u16 = 365;
 const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
@@ -72,9 +71,7 @@ fn get_cards(conn: &mut Connection) -> Result<Vec<Card>> {
         ",
     )?;
 
-    let start_of_tomorrow = Local::today().succ().and_hms(0, 0, 0).timestamp_millis();
-
-    let card_iter = stmt.query_map([start_of_tomorrow], |row| {
+    let card_iter = stmt.query_map([start_of_tomorrow()?], |row| {
         Ok(Card {
             deck_name: row.get(0)?,
             id: row.get(1)?,
@@ -89,6 +86,20 @@ fn get_cards(conn: &mut Connection) -> Result<Vec<Card>> {
     }
 
     Ok(cards)
+}
+
+fn start_of_tomorrow() -> Result<u64> {
+    let now = OffsetDateTime::now_local()?;
+    let start_of_tomorrow = now
+        .date()
+        .saturating_add(Duration::days(1))
+        .with_hms(0, 0, 0)
+        .expect("valid time")
+        .assume_offset(now.offset());
+
+    Ok((start_of_tomorrow.unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp"))
 }
 
 fn cards_to_review(cards: Vec<Card>) -> Vec<(String, Vec<Card>)> {
@@ -154,8 +165,11 @@ impl Theme for PlainPrompt {
 }
 
 fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
-    let now_date_time = Utc::now();
-    let now = now_date_time.timestamp_millis();
+    let now_date_time = OffsetDateTime::now_utc();
+
+    let now: u64 = (now_date_time.unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp");
 
     let tx = conn.transaction()?;
 
@@ -196,13 +210,14 @@ fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
             params![Null, Null, card_id],
         )?;
     } else {
+        let num_days_ms: u64 = Duration::days(num_days.into())
+            .whole_milliseconds()
+            .try_into()
+            .expect("valid duration");
+
         tx.execute(
             "UPDATE Schedule SET scheduledForTimestamp = ?, intervalDays = ? WHERE cardId = ?",
-            params![
-                (now_date_time + Duration::days(num_days.into())).timestamp_millis(),
-                num_days,
-                card_id
-            ],
+            params![now + num_days_ms, num_days, card_id],
         )?;
     }
 
@@ -212,7 +227,9 @@ fn answer_correct(conn: &mut Connection, card_id: u64) -> Result<()> {
 }
 
 fn answer_wrong(conn: &mut Connection, card_id: u64) -> Result<()> {
-    let now = Utc::now().timestamp_millis();
+    let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp");
 
     let tx = conn.transaction()?;
 

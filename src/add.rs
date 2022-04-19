@@ -1,10 +1,10 @@
 use crate::editor;
 use anyhow::Result;
-use chrono::Utc;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 pub fn run(db_path: &PathBuf, deck_id: u64) -> Result<()> {
     let mut conn = Connection::open(db_path)?;
@@ -14,7 +14,9 @@ pub fn run(db_path: &PathBuf, deck_id: u64) -> Result<()> {
 
     let tx = conn.transaction()?;
 
-    let now = Utc::now().timestamp_millis();
+    let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp");
 
     let card_id: u64 = tx.query_row(
         "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?) RETURNING *",

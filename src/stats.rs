@@ -1,10 +1,10 @@
 use anyhow::Result;
-use chrono::Duration;
-use chrono::Local;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use std::fmt;
 use std::path::PathBuf;
+use time::Duration;
+use time::OffsetDateTime;
 
 #[derive(Debug)]
 struct Global {
@@ -65,9 +65,6 @@ impl fmt::Display for Deck {
 pub fn run(db_path: &PathBuf) -> Result<()> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-    let tomorrow = Local::today().succ();
-    let tomorrow_end = tomorrow.and_hms(23, 59, 59).timestamp_millis();
-
     let global_stats = conn.query_row(
         "
                 SELECT
@@ -87,7 +84,7 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
                     FROM Schedule
                     WHERE scheduledForTimestamp < :reviewSpanEnd) AS forReview
                 ",
-        [tomorrow_end],
+        [end_of_tomorrow()?],
         |row| {
             Ok(Global {
                 active: row.get(0)?,
@@ -97,10 +94,6 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
             })
         },
     )?;
-
-    let thirty_days_ago = (Local::today() - Duration::days(30))
-        .and_hms(0, 0, 0)
-        .timestamp_millis();
 
     let mut stmt = conn.prepare(
                 "
@@ -130,7 +123,7 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
                 ORDER BY name;
                 "
             )?;
-    let deck_stats_iter = stmt.query_map([thirty_days_ago], |row| {
+    let deck_stats_iter = stmt.query_map([thirty_days_ago()?], |row| {
         Ok(Deck {
             name: row.get(0)?,
             active: row.get(1)?,
@@ -149,4 +142,32 @@ pub fn run(db_path: &PathBuf) -> Result<()> {
         println!("{deck_stats}");
     }
     Ok(())
+}
+
+fn end_of_tomorrow() -> Result<u64> {
+    let now = OffsetDateTime::now_local()?;
+    let end_of_tomorrow = now
+        .date()
+        .saturating_add(Duration::days(1))
+        .with_hms(23, 59, 59)
+        .expect("valid time")
+        .assume_offset(now.offset());
+
+    Ok((end_of_tomorrow.unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp"))
+}
+
+fn thirty_days_ago() -> Result<u64> {
+    let now = OffsetDateTime::now_local()?;
+    let end_of_tomorrow = now
+        .date()
+        .saturating_sub(Duration::days(30))
+        .with_hms(0, 0, 0)
+        .expect("valid time")
+        .assume_offset(now.offset());
+
+    Ok((end_of_tomorrow.unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp"))
 }
