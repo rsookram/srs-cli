@@ -8,6 +8,7 @@ pub mod edit;
 pub mod init;
 pub mod intmod;
 pub mod review;
+pub mod srs;
 pub mod stats;
 pub mod switch;
 

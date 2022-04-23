@@ -1,17 +1,9 @@
+use crate::srs::Srs;
 use anyhow::Result;
 use dialoguer::Confirm;
-use rusqlite::config::DbConfig;
-use rusqlite::Connection;
-use std::path::PathBuf;
 
-pub fn run(db_path: &PathBuf, card_id: u64) -> Result<()> {
-    let conn = Connection::open(db_path)?;
-    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
-
-    let front: String =
-        conn.query_row("SELECT front FROM Card WHERE id = ?", [card_id], |row| {
-            row.get(0)
-        })?;
+pub fn run(mut srs: Srs, card_id: u64) -> Result<()> {
+    let front: String = srs.get_card(card_id)?.front;
 
     if Confirm::new()
         .with_prompt(format!(
@@ -20,7 +12,7 @@ pub fn run(db_path: &PathBuf, card_id: u64) -> Result<()> {
         ))
         .interact()?
     {
-        conn.execute("DELETE FROM Card WHERE id = ?", [card_id])?;
+        srs.delete_card(card_id)?;
         println!("... deleted.");
     }
 

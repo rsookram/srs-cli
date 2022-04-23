@@ -11,6 +11,7 @@ use srs_cli::edit;
 use srs_cli::init;
 use srs_cli::intmod;
 use srs_cli::review;
+use srs_cli::srs::Srs;
 use srs_cli::stats;
 use srs_cli::switch;
 use std::path::PathBuf;
@@ -44,18 +45,20 @@ enum Commands {
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    let srs = Srs::open(&args.path)?;
+
     match &args.command {
-        Commands::Add { deck_id } => add::run(&args.path, *deck_id),
-        Commands::Cards => cards::run(&args.path),
-        Commands::CreateDeck { name } => createdeck::run(&args.path, name),
-        Commands::Decks => decks::run(&args.path),
-        Commands::Delete { card_id } => delete::run(&args.path, *card_id),
-        Commands::DeleteDeck { deck_id } => deletedeck::run(&args.path, *deck_id),
-        Commands::Edit { card_id } => edit::run(&args.path, *card_id),
+        Commands::Add { deck_id } => add::run(srs, *deck_id),
+        Commands::Cards => cards::run(srs),
+        Commands::CreateDeck { name } => createdeck::run(srs, name),
+        Commands::Decks => decks::run(srs),
+        Commands::Delete { card_id } => delete::run(srs, *card_id),
+        Commands::DeleteDeck { deck_id } => deletedeck::run(srs, *deck_id),
+        Commands::Edit { card_id } => edit::run(srs, *card_id),
         Commands::Init => init::run(&args.path),
-        Commands::IntMod { deck_id, modifier } => intmod::run(&args.path, *deck_id, *modifier),
+        Commands::IntMod { deck_id, modifier } => intmod::run(srs, *deck_id, *modifier),
         Commands::Review => review::run(&args.path),
-        Commands::Stats => stats::run(&args.path),
-        Commands::Switch { card_id, deck_id } => switch::run(&args.path, *card_id, *deck_id),
+        Commands::Stats => stats::run(srs),
+        Commands::Switch { card_id, deck_id } => switch::run(srs, *card_id, *deck_id),
     }
 }
