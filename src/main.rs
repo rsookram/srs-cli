@@ -57,7 +57,7 @@ fn main() -> Result<()> {
         Commands::Edit { card_id } => edit::run(srs, *card_id),
         Commands::Init => init::run(&args.path),
         Commands::IntMod { deck_id, modifier } => intmod::run(srs, *deck_id, *modifier),
-        Commands::Review => review::run(&args.path),
+        Commands::Review => review::run(srs),
         Commands::Stats => stats::run(srs),
         Commands::Switch { card_id, deck_id } => switch::run(srs, *card_id, *deck_id),
     }

@@ -1,13 +1,20 @@
 use anyhow::bail;
 use anyhow::Result;
+use rand::seq::SliceRandom;
+use rand::Rng;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
+use rusqlite::types::Null;
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use std::path::PathBuf;
 use time::Duration;
 use time::OffsetDateTime;
 
 const MIN_INTERVAL_MODIFIER: u16 = 50;
+const AUTO_SUSPEND_INTERVAL: u16 = 365;
+const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
+const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
 pub struct Srs {
     conn: Connection,
@@ -21,17 +28,17 @@ pub struct Deck {
 }
 
 #[derive(Debug)]
-pub struct CardPreview {
-    pub id: u64,
-    pub front: String,
-    pub is_leech: bool,
-}
-
-#[derive(Debug)]
 pub struct Card {
     pub id: u64,
     pub front: String,
     pub back: String,
+}
+
+#[derive(Debug)]
+pub struct CardPreview {
+    pub id: u64,
+    pub front: String,
+    pub is_leech: bool,
 }
 
 #[derive(Debug)]
@@ -135,29 +142,6 @@ impl Srs {
         Ok(())
     }
 
-    pub fn card_previews(&self) -> Result<Vec<CardPreview>> {
-        let mut stmt = self.conn.prepare(
-            "
-            SELECT id, front, isLeech
-            FROM Card
-            JOIN Schedule ON Card.id = Schedule.cardId
-            ORDER BY isLeech DESC, creationTimestamp DESC;
-            ",
-        )?;
-
-        let iter = stmt.query_map([], |row| {
-            Ok(CardPreview {
-                id: row.get(0)?,
-                front: row.get(1)?,
-                is_leech: row.get(2)?,
-            })
-        })?;
-
-        let r: Result<_, rusqlite::Error> = iter.collect();
-
-        Ok(r?)
-    }
-
     pub fn get_card(&self, id: u64) -> Result<Card> {
         Ok(self.conn.query_row(
             "
@@ -219,6 +203,181 @@ impl Srs {
             "UPDATE Card SET deckId = ? WHERE id = ?",
             [deck_id, card_id],
         )?;
+
+        Ok(())
+    }
+
+    pub fn card_previews(&self) -> Result<Vec<CardPreview>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, front, isLeech
+            FROM Card
+            JOIN Schedule ON Card.id = Schedule.cardId
+            ORDER BY isLeech DESC, creationTimestamp DESC;
+            ",
+        )?;
+
+        let iter = stmt.query_map([], |row| {
+            Ok(CardPreview {
+                id: row.get(0)?,
+                front: row.get(1)?,
+                is_leech: row.get(2)?,
+            })
+        })?;
+
+        let r: Result<_, rusqlite::Error> = iter.collect();
+
+        Ok(r?)
+    }
+
+    pub fn cards_to_review(&self) -> Result<Vec<(String, Vec<Card>)>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT Deck.name, Card.id, Card.front, Card.back
+            FROM Card JOIN Schedule ON Card.id = Schedule.cardId JOIN Deck ON Card.deckId = Deck.id
+            WHERE isLeech = 0 AND scheduledForTimestamp < ?
+            ORDER BY Card.deckId, scheduledForTimestamp
+            ",
+        )?;
+
+        let iter = stmt.query_map([start_of_tomorrow()?], |row| {
+            Ok((
+                row.get(0)?,
+                Card {
+                    id: row.get(1)?,
+                    front: row.get(2)?,
+                    back: row.get(3)?,
+                },
+            ))
+        })?;
+
+        let r: Result<_, rusqlite::Error> = iter.collect();
+
+        let cards: Vec<(String, Card)> = r?;
+
+        if cards.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut rng = rand::thread_rng();
+
+        let mut cards_by_deck = vec![];
+
+        let mut current_deck = cards[0].0.clone();
+        let mut current_cards = vec![];
+        for (deck_name, card) in cards {
+            if deck_name != current_deck {
+                let deck_name = std::mem::take(&mut current_deck);
+                let mut cards = std::mem::take(&mut current_cards);
+
+                current_deck = deck_name.clone();
+
+                cards.shuffle(&mut rng);
+                cards_by_deck.push((deck_name, cards));
+            }
+
+            current_cards.push(card);
+        }
+
+        current_cards.shuffle(&mut rng);
+        cards_by_deck.push((current_deck, current_cards));
+
+        Ok(cards_by_deck)
+    }
+
+    pub fn answer_correct(&mut self, card_id: u64) -> Result<()> {
+        let now_date_time = OffsetDateTime::now_utc();
+
+        let now: u64 = (now_date_time.unix_timestamp() * 1000)
+            .try_into()
+            .expect("valid timestamp");
+
+        let tx = self.conn.transaction()?;
+
+        let interval_days: u16 = tx
+            .query_row(
+                "SELECT intervalDays FROM Schedule WHERE cardId = ?",
+                [card_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .expect("card is not suspended");
+
+        tx.execute(
+            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
+            params![card_id, true, now],
+        )?;
+
+        let was_correct: Option<bool> = tx
+            .query_row(
+                "SELECT isCorrect FROM Answer WHERE cardId = ? ORDER BY timestamp DESC LIMIT 1",
+                [card_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let interval_modifier: u16 = tx.query_row(
+            "SELECT intervalModifier FROM Deck JOIN Card ON Deck.id = Card.deckId WHERE Card.id = ?",
+            [card_id],
+            |row| row.get(0),
+        )?;
+
+        let mut schedule = Schedule::new(rand::thread_rng());
+        let num_days = schedule.next_interval(interval_days, was_correct, interval_modifier);
+
+        if num_days >= AUTO_SUSPEND_INTERVAL {
+            tx.execute(
+                "UPDATE Schedule SET scheduledForTimestamp = ?, intervalDays = ? WHERE cardId = ?",
+                params![Null, Null, card_id],
+            )?;
+        } else {
+            let num_days_ms: u64 = Duration::days(num_days.into())
+                .whole_milliseconds()
+                .try_into()
+                .expect("valid duration");
+
+            tx.execute(
+                "UPDATE Schedule SET scheduledForTimestamp = ?, intervalDays = ? WHERE cardId = ?",
+                params![now + num_days_ms, num_days, card_id],
+            )?;
+        }
+
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    pub fn answer_wrong(&mut self, card_id: u64) -> Result<()> {
+        let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+            .try_into()
+            .expect("valid timestamp");
+
+        let tx = self.conn.transaction()?;
+
+        tx.execute(
+            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
+            params![card_id, false, now],
+        )?;
+
+        tx.execute(
+            "UPDATE Schedule SET scheduledForTimestamp = ? WHERE cardId = ?",
+            params![now, card_id],
+        )?;
+
+        let num_wrong: u16 = tx.query_row(
+            "SELECT COUNT(*) FROM Answer WHERE cardId = ? AND isCorrect = 0",
+            [card_id],
+            |row| row.get(0),
+        )?;
+
+        if num_wrong >= WRONG_ANSWERS_FOR_LEECH {
+            tx.execute(
+                "UPDATE Schedule SET isLeech = 1 WHERE cardId = ?",
+                [card_id],
+            )?;
+        }
+
+        tx.commit()?;
 
         Ok(())
     }
@@ -299,6 +458,20 @@ impl Srs {
     }
 }
 
+fn start_of_tomorrow() -> Result<u64> {
+    let now = OffsetDateTime::now_local()?;
+    let start_of_tomorrow = now
+        .date()
+        .saturating_add(Duration::days(1))
+        .with_hms(0, 0, 0)
+        .expect("valid time")
+        .assume_offset(now.offset());
+
+    Ok((start_of_tomorrow.unix_timestamp() * 1000)
+        .try_into()
+        .expect("valid timestamp"))
+}
+
 fn end_of_tomorrow() -> Result<u64> {
     let now = OffsetDateTime::now_local()?;
     let end_of_tomorrow = now
@@ -325,4 +498,143 @@ fn thirty_days_ago() -> Result<u64> {
     Ok((end_of_tomorrow.unix_timestamp() * 1000)
         .try_into()
         .expect("valid timestamp"))
+}
+
+struct Schedule<R: Rng> {
+    rng: R,
+}
+
+impl<R: Rng> Schedule<R> {
+    fn new(rng: R) -> Self {
+        Schedule { rng }
+    }
+
+    fn next_interval(
+        &mut self,
+        previous_interval: u16,
+        was_correct: Option<bool>,
+        interval_modifier: u16,
+    ) -> u16 {
+        match previous_interval {
+            // Newly added card answered correctly
+            0 => 1,
+            // First review. The wrong answer penalty isn't applied since it's rare to answer
+            // incorrectly on the first review.
+            1 => 4,
+            _ => {
+                let was_correct = was_correct.expect("previously answered the card");
+
+                if was_correct {
+                    // Previous answer was correct
+                    let mut next =
+                        (previous_interval as f64 * 2.5 * (interval_modifier as f64 / 100.0))
+                            as u16;
+
+                    let max_fuzz =
+                        (previous_interval as f64 * self.fuzz_factor(previous_interval)) as u16;
+                    let fuzz = self.rng.gen_range(0..=max_fuzz);
+
+                    if self.rng.gen() {
+                        next += fuzz;
+                    } else {
+                        next -= fuzz;
+                    }
+
+                    next
+                } else {
+                    // Previous answer was wrong
+                    std::cmp::max(1, (previous_interval as f64 * WRONG_ANSWER_PENALTY) as u16)
+                }
+            }
+        }
+    }
+
+    fn fuzz_factor(&self, previous_interval: u16) -> f64 {
+        if previous_interval < 7 {
+            0.25
+        } else if previous_interval < 30 {
+            0.15
+        } else {
+            0.05
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::RngCore;
+
+    struct NotRandom;
+
+    impl RngCore for NotRandom {
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            0
+        }
+
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            dest.fill(0);
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+            Ok(self.fill_bytes(dest))
+        }
+    }
+
+    #[test]
+    fn first_answer() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        let next = schedule.next_interval(0, None, 100);
+
+        assert_eq!(next, 1);
+    }
+
+    #[test]
+    fn first_review() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        let next = schedule.next_interval(1, Some(true), 100);
+
+        assert_eq!(next, 4);
+    }
+
+    #[test]
+    fn apply_wrong_penalty() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        let next = schedule.next_interval(50, Some(false), 100);
+
+        assert_eq!(next, (50 as f64 * WRONG_ANSWER_PENALTY) as u16);
+    }
+
+    #[test]
+    fn correct_answer() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        let next = schedule.next_interval(50, Some(true), 100);
+
+        assert_eq!(next, 125);
+    }
+
+    #[test]
+    fn increase_by_interval_modifier() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        let next = schedule.next_interval(50, Some(true), 200);
+
+        assert_eq!(next, 250);
+    }
+
+    #[test]
+    #[should_panic]
+    fn expect_previous_answer_for_large_interval() {
+        let mut schedule = Schedule::new(NotRandom);
+
+        schedule.next_interval(50, None, 200);
+    }
 }
