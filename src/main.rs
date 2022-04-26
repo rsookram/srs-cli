@@ -2,14 +2,13 @@ mod opt;
 
 use anyhow::anyhow;
 use anyhow::Result;
-use clap::Parser;
 use dialoguer::Confirm;
 use rusqlite::Connection;
 use srs_cli::Srs;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    let args = opt::Args::parse();
+    let args = opt::Opt::from_args();
 
     let srs = Srs::open(&args.path)?;
 
