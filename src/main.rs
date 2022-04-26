@@ -278,7 +278,7 @@ pub fn open_editor(front: &str, back: &str) -> Result<(String, String)> {
     output
         .split_once(divider)
         .map(|(front, back)| (front.trim().to_string(), back.trim().to_string()))
-        .ok_or(anyhow!("Missing divider between front and back of card"))
+        .ok_or_else(|| anyhow!("Missing divider between front and back of card"))
         .and_then(|(front, back)| {
             if front.is_empty() {
                 Err(anyhow!("Front of card can't be empty"))
