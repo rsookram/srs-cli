@@ -7,7 +7,7 @@ use rusqlite::params;
 use rusqlite::types::Null;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
-use std::path::PathBuf;
+use std::path::Path;
 use time::Duration;
 use time::OffsetDateTime;
 
@@ -60,7 +60,7 @@ pub struct DeckStats {
 }
 
 impl Srs {
-    pub fn open(db_path: &PathBuf) -> Result<Self> {
+    pub fn open(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path)?;
 
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;

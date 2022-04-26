@@ -5,7 +5,7 @@ use anyhow::Result;
 use dialoguer::Confirm;
 use rusqlite::Connection;
 use srs_cli::Srs;
-use std::path::PathBuf;
+use std::path::Path;
 
 fn main() -> Result<()> {
     let args = opt::Opt::from_args();
@@ -115,7 +115,7 @@ fn edit(mut srs: Srs, card_id: u64) -> Result<()> {
     srs.update_card(card_id, front, back)
 }
 
-fn init(db_path: &PathBuf) -> Result<()> {
+fn init(db_path: &Path) -> Result<()> {
     let conn = Connection::open(db_path)?;
 
     conn.execute_batch(include_str!("schema.sql"))?;
