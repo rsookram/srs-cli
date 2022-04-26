@@ -1,56 +1,44 @@
+mod opt;
+
 use anyhow::anyhow;
 use anyhow::Result;
 use clap::Parser;
-use clap::Subcommand;
 use dialoguer::Confirm;
 use rusqlite::Connection;
 use srs_cli::Srs;
 use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    #[clap(subcommand)]
-    command: Commands,
-
-    #[clap(short, long, global = true, parse(from_os_str), default_value_os_t = PathBuf::from("srs.db"))]
-    path: PathBuf,
-}
-
-#[derive(Debug, Subcommand)]
-enum Commands {
-    Add { deck_id: u64 },
-    Cards,
-    CreateDeck { name: String },
-    Decks,
-    Delete { card_id: u64 },
-    DeleteDeck { deck_id: u64 },
-    Edit { card_id: u64 },
-    Init,
-    IntMod { deck_id: u64, modifier: u16 },
-    Review,
-    Stats,
-    Switch { card_id: u64, deck_id: u64 },
-}
-
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = opt::Args::parse();
 
     let srs = Srs::open(&args.path)?;
 
+    use opt::Commands::*;
+
     match &args.command {
-        Commands::Add { deck_id } => add(srs, *deck_id),
-        Commands::Cards => cards(srs),
-        Commands::CreateDeck { name } => create_deck(srs, name),
-        Commands::Decks => decks(srs),
-        Commands::Delete { card_id } => delete(srs, *card_id),
-        Commands::DeleteDeck { deck_id } => delete_deck(srs, *deck_id),
-        Commands::Edit { card_id } => edit(srs, *card_id),
-        Commands::Init => init(&args.path),
-        Commands::IntMod { deck_id, modifier } => int_mod(srs, *deck_id, *modifier),
-        Commands::Review => review::run(srs),
-        Commands::Stats => stats::run(srs),
-        Commands::Switch { card_id, deck_id } => switch(srs, *card_id, *deck_id),
+        Add { deck_id } => add(srs, *deck_id),
+
+        Cards => cards(srs),
+
+        CreateDeck { name } => create_deck(srs, name),
+
+        Decks => decks(srs),
+
+        Delete { card_id } => delete(srs, *card_id),
+
+        DeleteDeck { deck_id } => delete_deck(srs, *deck_id),
+
+        Edit { card_id } => edit(srs, *card_id),
+
+        Init => init(&args.path),
+
+        IntMod { deck_id, modifier } => int_mod(srs, *deck_id, *modifier),
+
+        Review => review::run(srs),
+
+        Stats => stats::run(srs),
+
+        Switch { card_id, deck_id } => switch(srs, *card_id, *deck_id),
     }
 }
 
