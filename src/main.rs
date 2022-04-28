@@ -8,13 +8,13 @@ use srs_cli::Srs;
 use std::path::Path;
 
 fn main() -> Result<()> {
-    let args = opt::Opt::from_args();
+    let opt = opt::Opt::from_args();
 
-    let srs = Srs::open(&args.path)?;
+    let srs = Srs::open(&opt.path)?;
 
     use opt::Commands::*;
 
-    match &args.command {
+    match &opt.command {
         Add { deck_id } => add(srs, *deck_id),
 
         Cards => cards(srs),
@@ -29,7 +29,7 @@ fn main() -> Result<()> {
 
         Edit { card_id } => edit(srs, *card_id),
 
-        Init => init(&args.path),
+        Init => init(&opt.path),
 
         IntMod { deck_id, modifier } => int_mod(srs, *deck_id, *modifier),
 
