@@ -96,10 +96,14 @@ impl Opt {
             _ => bail!("unknown subcommand"),
         };
 
-        if args.finish().is_empty() {
+        let remaining = args.finish();
+        if remaining.is_empty() {
             Ok(Self { command, path })
         } else {
-            Err(anyhow!("found argument which wasn't expected"))
+            Err(anyhow!(
+                "found arguments which weren't expected: {:?}",
+                remaining
+            ))
         }
     }
 }
