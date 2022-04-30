@@ -231,7 +231,10 @@ mod stats {
 
         print_global(&global_stats);
 
-        deck_stats.iter().for_each(print_deck);
+        for stat in deck_stats.iter() {
+            println!();
+            print_deck(stat);
+        }
 
         Ok(())
     }
@@ -249,16 +252,16 @@ mod stats {
 
     fn print_deck(stats: &DeckStats) {
         let total = stats.active + stats.suspended + (stats.leech as u32);
-        println!("{}\n{} / {total} active", stats.name, stats.active);
+        println!("{}\n  {} / {total} active", stats.name, stats.active);
 
         if stats.leech > 0 {
-            println!("{} leeches", stats.leech);
+            println!("  {} leeches", stats.leech);
         }
 
         let num_answered = stats.correct + stats.wrong;
 
         println!(
-            "Past month accuracy: {:.0}% ({} / {num_answered})",
+            "  Past month accuracy: {:.0}% ({} / {num_answered})",
             if num_answered > 0 {
                 stats.correct as f32 / num_answered as f32 * 100.0
             } else {
