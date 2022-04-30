@@ -1,7 +1,9 @@
 use anyhow::bail;
 use anyhow::Result;
+use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::SeedableRng;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::types::Null;
@@ -259,7 +261,7 @@ impl Srs {
             return Ok(vec![]);
         }
 
-        let mut rng = rand::thread_rng();
+        let mut rng = SmallRng::from_entropy();
 
         let mut cards_by_deck = vec![];
 
@@ -322,7 +324,7 @@ impl Srs {
             |row| row.get(0),
         )?;
 
-        let mut schedule = Schedule::new(rand::thread_rng());
+        let mut schedule = Schedule::new(SmallRng::from_entropy());
         let num_days = schedule.next_interval(interval_days, was_correct, interval_modifier);
 
         if num_days >= AUTO_SUSPEND_INTERVAL {
