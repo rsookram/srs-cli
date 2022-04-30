@@ -70,6 +70,15 @@ impl Srs {
         Ok(Self { conn })
     }
 
+    #[cfg(test)]
+    fn open_in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+
+        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
+
+        Ok(Self { conn })
+    }
+
     pub fn init(&mut self) -> Result<()> {
         self.conn.execute_batch(include_str!("schema.sql"))?;
 
@@ -508,6 +517,22 @@ fn thirty_days_ago() -> Result<u64> {
         .expect("valid timestamp"))
 }
 
+#[cfg(test)]
+mod srs_tests {
+    use super::*;
+
+    #[test]
+    fn empty_db() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        assert_eq!(srs.decks()?.len(), 0);
+        assert_eq!(srs.card_previews()?.len(), 0);
+
+        Ok(())
+    }
+}
+
 struct Schedule<R: Rng> {
     rng: R,
 }
@@ -569,7 +594,7 @@ impl<R: Rng> Schedule<R> {
 }
 
 #[cfg(test)]
-mod tests {
+mod schedule_tests {
     use super::*;
     use rand::RngCore;
 
