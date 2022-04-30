@@ -12,6 +12,7 @@ use rusqlite::OptionalExtension;
 use std::path::Path;
 use time::Duration;
 use time::OffsetDateTime;
+use time::UtcOffset;
 
 const MIN_INTERVAL_MODIFIER: u16 = 50;
 const AUTO_SUSPEND_INTERVAL: u16 = 365;
@@ -20,9 +21,10 @@ const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
 pub struct Srs {
     conn: Connection,
+    offset: UtcOffset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Deck {
     pub id: u64,
     pub name: String,
@@ -43,7 +45,7 @@ pub struct CardPreview {
     pub is_leech: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GlobalStats {
     pub active: u32,
     pub suspended: u32,
@@ -67,7 +69,10 @@ impl Srs {
 
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            offset: UtcOffset::current_local_offset()?,
+        })
     }
 
     #[cfg(test)]
@@ -76,7 +81,10 @@ impl Srs {
 
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            offset: UtcOffset::UTC,
+        })
     }
 
     pub fn init(&mut self) -> Result<()> {
@@ -257,7 +265,7 @@ impl Srs {
             ",
         )?;
 
-        let iter = stmt.query_map([start_of_tomorrow()?], |row| {
+        let iter = stmt.query_map([self.start_of_tomorrow()?], |row| {
             Ok((
                 row.get(0)?,
                 Card {
@@ -419,7 +427,7 @@ impl Srs {
                 FROM Schedule
                 WHERE scheduledForTimestamp < :reviewSpanEnd) AS forReview
             ",
-            [end_of_tomorrow()?],
+            [self.end_of_tomorrow()?],
             |row| {
                 Ok(GlobalStats {
                     active: row.get(0)?,
@@ -458,7 +466,7 @@ impl Srs {
             ORDER BY name
             "
         )?;
-        let iter = stmt.query_map([thirty_days_ago()?], |row| {
+        let iter = stmt.query_map([self.thirty_days_ago()?], |row| {
             Ok(DeckStats {
                 name: row.get(0)?,
                 active: row.get(1)?,
@@ -473,53 +481,54 @@ impl Srs {
 
         Ok((global_stats, deck_stats?))
     }
-}
 
-fn start_of_tomorrow() -> Result<u64> {
-    let now = OffsetDateTime::now_local()?;
-    let start_of_tomorrow = now
-        .date()
-        .saturating_add(Duration::days(1))
-        .with_hms(0, 0, 0)
-        .expect("valid time")
-        .assume_offset(now.offset());
+    fn start_of_tomorrow(&self) -> Result<u64> {
+        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let start_of_tomorrow = now
+            .date()
+            .saturating_add(Duration::days(1))
+            .with_hms(0, 0, 0)
+            .expect("valid time")
+            .assume_offset(now.offset());
 
-    Ok((start_of_tomorrow.unix_timestamp() * 1000)
-        .try_into()
-        .expect("valid timestamp"))
-}
+        Ok((start_of_tomorrow.unix_timestamp() * 1000)
+            .try_into()
+            .expect("valid timestamp"))
+    }
 
-fn end_of_tomorrow() -> Result<u64> {
-    let now = OffsetDateTime::now_local()?;
-    let end_of_tomorrow = now
-        .date()
-        .saturating_add(Duration::days(1))
-        .with_hms(23, 59, 59)
-        .expect("valid time")
-        .assume_offset(now.offset());
+    fn end_of_tomorrow(&self) -> Result<u64> {
+        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let end_of_tomorrow = now
+            .date()
+            .saturating_add(Duration::days(1))
+            .with_hms(23, 59, 59)
+            .expect("valid time")
+            .assume_offset(now.offset());
 
-    Ok((end_of_tomorrow.unix_timestamp() * 1000)
-        .try_into()
-        .expect("valid timestamp"))
-}
+        Ok((end_of_tomorrow.unix_timestamp() * 1000)
+            .try_into()
+            .expect("valid timestamp"))
+    }
 
-fn thirty_days_ago() -> Result<u64> {
-    let now = OffsetDateTime::now_local()?;
-    let end_of_tomorrow = now
-        .date()
-        .saturating_sub(Duration::days(30))
-        .with_hms(0, 0, 0)
-        .expect("valid time")
-        .assume_offset(now.offset());
+    fn thirty_days_ago(&self) -> Result<u64> {
+        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let end_of_tomorrow = now
+            .date()
+            .saturating_sub(Duration::days(30))
+            .with_hms(0, 0, 0)
+            .expect("valid time")
+            .assume_offset(now.offset());
 
-    Ok((end_of_tomorrow.unix_timestamp() * 1000)
-        .try_into()
-        .expect("valid timestamp"))
+        Ok((end_of_tomorrow.unix_timestamp() * 1000)
+            .try_into()
+            .expect("valid timestamp"))
+    }
 }
 
 #[cfg(test)]
 mod srs_tests {
     use super::*;
+    use anyhow::anyhow;
 
     #[test]
     fn empty_db() -> Result<()> {
@@ -528,8 +537,73 @@ mod srs_tests {
 
         assert_eq!(srs.decks()?.len(), 0);
         assert_eq!(srs.card_previews()?.len(), 0);
+        assert_eq!(srs.cards_to_review()?.len(), 0);
+
+        let (global_stats, deck_stats) = srs.stats()?;
+        assert_eq!(
+            global_stats,
+            GlobalStats {
+                active: 0,
+                suspended: 0,
+                leech: 0,
+                for_review: 0,
+            }
+        );
+        assert_eq!(deck_stats.len(), 0);
 
         Ok(())
+    }
+
+    #[test]
+    fn create_deck() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        assert_eq!(deck.name, "testName");
+        assert_eq!(deck.interval_modifier, 100);
+
+        assert_eq!(srs.get_deck(deck.id)?, deck);
+        assert_eq!(srs.decks()?, vec![deck]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn edit_deck() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+
+        srs.update_interval_modifier(deck.id, 120)?;
+
+        assert_eq!(srs.get_deck(deck.id)?.interval_modifier, 120);
+
+        Ok(())
+    }
+
+    #[test]
+    fn delete_deck() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+
+        srs.delete_deck(deck.id)?;
+
+        assert_eq!(srs.decks()?.len(), 0);
+
+        let (_, deck_stats) = srs.stats()?;
+        assert_eq!(deck_stats.len(), 0);
+
+        Ok(())
+    }
+
+    fn create_and_return_deck(srs: &mut Srs, name: &str) -> Result<Deck> {
+        srs.create_deck(name)?;
+
+        srs.decks()?.into_iter().next().ok_or(anyhow!("no decks"))
     }
 }
 
