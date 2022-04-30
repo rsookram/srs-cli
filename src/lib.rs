@@ -267,13 +267,13 @@ impl Srs {
         let mut current_cards = vec![];
         for (deck_name, card) in cards {
             if deck_name != current_deck {
-                let deck_name = std::mem::take(&mut current_deck);
+                let old_deck_name = std::mem::take(&mut current_deck);
                 let mut cards = std::mem::take(&mut current_cards);
 
                 current_deck = deck_name.clone();
 
                 cards.shuffle(&mut rng);
-                cards_by_deck.push((deck_name, cards));
+                cards_by_deck.push((old_deck_name, cards));
             }
 
             current_cards.push(card);
