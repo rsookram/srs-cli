@@ -3,9 +3,7 @@ mod opt;
 use anyhow::anyhow;
 use anyhow::Result;
 use dialoguer::Confirm;
-use rusqlite::Connection;
 use srs_cli::Srs;
-use std::path::Path;
 
 fn main() -> Result<()> {
     let opt = opt::Opt::from_args();
@@ -29,7 +27,7 @@ fn main() -> Result<()> {
 
         Edit { card_id } => edit(srs, *card_id),
 
-        Init => init(&opt.path),
+        Init => init(srs),
 
         IntMod { deck_id, modifier } => int_mod(srs, *deck_id, *modifier),
 
@@ -115,12 +113,8 @@ fn edit(mut srs: Srs, card_id: u64) -> Result<()> {
     srs.update_card(card_id, front, back)
 }
 
-fn init(db_path: &Path) -> Result<()> {
-    let conn = Connection::open(db_path)?;
-
-    conn.execute_batch(include_str!("schema.sql"))?;
-
-    Ok(())
+fn init(mut srs: Srs) -> Result<()> {
+    srs.init()
 }
 
 fn int_mod(mut srs: Srs, deck_id: u64, modifier: u16) -> Result<()> {

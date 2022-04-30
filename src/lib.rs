@@ -70,6 +70,12 @@ impl Srs {
         Ok(Self { conn })
     }
 
+    pub fn init(&mut self) -> Result<()> {
+        self.conn.execute_batch(include_str!("schema.sql"))?;
+
+        Ok(())
+    }
+
     pub fn decks(&self) -> Result<Vec<Deck>> {
         let mut stmt = self
             .conn
