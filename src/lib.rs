@@ -31,7 +31,7 @@ pub struct Deck {
     pub interval_modifier: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Card {
     pub id: u64,
     pub front: String,
@@ -53,7 +53,7 @@ pub struct GlobalStats {
     pub for_review: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DeckStats {
     pub name: String,
     pub active: u32,
@@ -96,7 +96,7 @@ impl Srs {
     pub fn decks(&self) -> Result<Vec<Deck>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, name, intervalModifier FROM Deck")?;
+            .prepare("SELECT id, name, intervalModifier FROM Deck ORDER BY id")?;
 
         let iter = stmt.query_map([], |row| {
             Ok(Deck {
@@ -600,10 +600,148 @@ mod srs_tests {
         Ok(())
     }
 
+    #[test]
+    fn create_card() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        assert_eq!(card.front, "front");
+        assert_eq!(card.back, "back");
+
+        let for_review = srs
+            .cards_to_review()?
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("nothing to review"))?;
+        assert_eq!(for_review, ("testName".to_string(), vec![card]));
+
+        let (global_stats, deck_stats) = srs.stats()?;
+        assert_eq!(
+            global_stats,
+            GlobalStats {
+                active: 1,
+                suspended: 0,
+                leech: 0,
+                for_review: 1,
+            }
+        );
+        assert_eq!(
+            deck_stats,
+            vec![DeckStats {
+                name: "testName".to_string(),
+                active: 1,
+                suspended: 0,
+                leech: 0,
+                correct: 0,
+                wrong: 0,
+            }],
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn edit_card() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        srs.update_card(card.id, "new front".to_string(), "new back".to_string())?;
+
+        let edited_card = srs.get_card(card.id)?;
+        assert_eq!(edited_card.id, card.id);
+        assert_eq!(edited_card.front, "new front");
+        assert_eq!(edited_card.back, "new back");
+
+        Ok(())
+    }
+
+    #[test]
+    fn switch_card() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let deck2 = create_and_return_deck(&mut srs, "another deck")?;
+
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        srs.switch_deck(card.id, deck2.id)?;
+
+        let for_review = srs
+            .cards_to_review()?
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("nothing to review"))?;
+        assert_eq!(for_review, ("another deck".to_string(), vec![card]));
+
+        let (_, deck_stats) = srs.stats()?;
+        assert_eq!(
+            deck_stats,
+            vec![
+                DeckStats {
+                    name: "another deck".to_string(),
+                    active: 1,
+                    suspended: 0,
+                    leech: 0,
+                    correct: 0,
+                    wrong: 0,
+                },
+                DeckStats {
+                    name: "testName".to_string(),
+                    active: 0,
+                    suspended: 0,
+                    leech: 0,
+                    correct: 0,
+                    wrong: 0,
+                }
+            ],
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn delete_card() -> Result<()> {
+        let mut srs = Srs::open_in_memory()?;
+        srs.init()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        srs.delete_card(card.id)?;
+
+        let card = srs.get_card(card.id);
+
+        assert!(card.is_err(), "got a card {:?}", card);
+
+        Ok(())
+    }
+
     fn create_and_return_deck(srs: &mut Srs, name: &str) -> Result<Deck> {
         srs.create_deck(name)?;
 
-        srs.decks()?.into_iter().next().ok_or(anyhow!("no decks"))
+        srs.decks()?.pop().ok_or(anyhow!("no decks"))
+    }
+
+    fn create_and_return_card(srs: &mut Srs, deck: &Deck, front: &str, back: &str) -> Result<Card> {
+        srs.create_card(deck.id, front.to_string(), back.to_string())?;
+
+        let preview = srs
+            .card_previews()?
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("no cards"))?;
+
+        srs.get_card(preview.id)
     }
 }
 
