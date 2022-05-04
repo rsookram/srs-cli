@@ -1,17 +1,24 @@
+use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::SeedableRng;
+
+pub trait Schedule {
+    fn next_interval(
+        &mut self,
+        previous_interval: u16,
+        was_correct: Option<bool>,
+        interval_modifier: u16,
+    ) -> u16;
+}
 
 const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
-pub struct Schedule<R: Rng> {
-    rng: R,
+pub struct LowKeyAnki {
+    rng: Box<dyn rand::RngCore>,
 }
 
-impl<R: Rng> Schedule<R> {
-    pub fn new(rng: R) -> Self {
-        Schedule { rng }
-    }
-
-    pub fn next_interval(
+impl Schedule for LowKeyAnki {
+    fn next_interval(
         &mut self,
         previous_interval: u16,
         was_correct: Option<bool>,
@@ -48,6 +55,14 @@ impl<R: Rng> Schedule<R> {
                     std::cmp::max(1, (previous_interval as f64 * WRONG_ANSWER_PENALTY) as u16)
                 }
             }
+        }
+    }
+}
+
+impl LowKeyAnki {
+    pub fn new() -> Self {
+        Self {
+            rng: Box::new(SmallRng::from_entropy()),
         }
     }
 
@@ -87,9 +102,15 @@ mod tests {
         }
     }
 
+    fn new_schedule() -> LowKeyAnki {
+        LowKeyAnki {
+            rng: Box::new(NotRandom),
+        }
+    }
+
     #[test]
     fn first_answer() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(0, None, 100);
 
@@ -98,7 +119,7 @@ mod tests {
 
     #[test]
     fn first_review() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(1, Some(true), 100);
 
@@ -107,7 +128,7 @@ mod tests {
 
     #[test]
     fn apply_wrong_penalty() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(false), 100);
 
@@ -116,7 +137,7 @@ mod tests {
 
     #[test]
     fn correct_answer() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 100);
 
@@ -125,7 +146,7 @@ mod tests {
 
     #[test]
     fn increase_by_interval_modifier() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 200);
 
@@ -135,7 +156,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn expect_previous_answer_for_large_interval() {
-        let mut schedule = Schedule::new(NotRandom);
+        let mut schedule = new_schedule();
 
         schedule.next_interval(50, None, 200);
     }

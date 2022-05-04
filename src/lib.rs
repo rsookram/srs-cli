@@ -10,6 +10,7 @@ use rusqlite::params;
 use rusqlite::types::Null;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
+use schedule::LowKeyAnki;
 use schedule::Schedule;
 use std::path::Path;
 use time::Duration;
@@ -348,7 +349,7 @@ impl Srs {
             |row| row.get(0),
         )?;
 
-        let mut schedule = Schedule::new(SmallRng::from_entropy());
+        let mut schedule = LowKeyAnki::new();
         let num_days = schedule.next_interval(interval_days, was_correct, interval_modifier);
 
         if num_days >= AUTO_SUSPEND_INTERVAL {
