@@ -23,6 +23,7 @@ const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
 
 pub struct Srs {
     conn: Connection,
+    schedule: Box<dyn Schedule>,
     offset: UtcOffset,
 }
 
@@ -73,18 +74,20 @@ impl Srs {
 
         Ok(Self {
             conn,
+            schedule: Box::new(LowKeyAnki::new()),
             offset: UtcOffset::current_local_offset()?,
         })
     }
 
     #[cfg(test)]
-    fn open_in_memory() -> Result<Self> {
+    fn open_in_memory(schedule: Box<dyn Schedule>) -> Result<Self> {
         let conn = Connection::open_in_memory()?;
 
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
         Ok(Self {
             conn,
+            schedule,
             offset: UtcOffset::UTC,
         })
     }
@@ -349,8 +352,9 @@ impl Srs {
             |row| row.get(0),
         )?;
 
-        let mut schedule = LowKeyAnki::new();
-        let num_days = schedule.next_interval(interval_days, was_correct, interval_modifier);
+        let num_days = self
+            .schedule
+            .next_interval(interval_days, was_correct, interval_modifier);
 
         if num_days >= AUTO_SUSPEND_INTERVAL {
             tx.execute(
@@ -532,10 +536,33 @@ mod tests {
     use super::*;
     use anyhow::anyhow;
 
+    struct DoublingSchedule;
+
+    impl Schedule for DoublingSchedule {
+        fn next_interval(
+            &mut self,
+            previous_interval: u16,
+            was_correct: Option<bool>,
+            interval_modifier: u16,
+        ) -> u16 {
+            match was_correct {
+                Some(true) => previous_interval * 2 * interval_modifier,
+                Some(false) => previous_interval / 2,
+                None => 1,
+            }
+        }
+    }
+
+    fn new_srs() -> Result<Srs> {
+        let mut srs = Srs::open_in_memory(Box::new(DoublingSchedule))?;
+        srs.init()?;
+
+        Ok(srs)
+    }
+
     #[test]
     fn empty_db() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let srs = new_srs()?;
 
         assert_eq!(srs.decks()?.len(), 0);
         assert_eq!(srs.card_previews()?.len(), 0);
@@ -558,8 +585,7 @@ mod tests {
 
     #[test]
     fn create_deck() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         assert_eq!(deck.name, "testName");
@@ -573,8 +599,7 @@ mod tests {
 
     #[test]
     fn edit_deck() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -587,8 +612,7 @@ mod tests {
 
     #[test]
     fn delete_deck() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -604,8 +628,7 @@ mod tests {
 
     #[test]
     fn create_card() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -648,8 +671,7 @@ mod tests {
 
     #[test]
     fn edit_card() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -667,8 +689,7 @@ mod tests {
 
     #[test]
     fn switch_card() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let deck2 = create_and_return_deck(&mut srs, "another deck")?;
@@ -712,8 +733,7 @@ mod tests {
 
     #[test]
     fn delete_card() -> Result<()> {
-        let mut srs = Srs::open_in_memory()?;
-        srs.init()?;
+        let mut srs = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
