@@ -155,10 +155,15 @@ mod review {
     pub fn run(mut srs: Srs) -> Result<()> {
         let cards = srs.cards_to_review()?;
 
+        println!(
+            "{} cards to review",
+            cards.iter().flat_map(|(_, cc)| cc).count()
+        );
+
         for (deck_name, cards) in cards {
             let num_cards = cards.len();
 
-            println!("{num_cards} cards to review in {deck_name}\n");
+            println!("\n{num_cards} cards to review in {deck_name}\n");
 
             let mut num_correct = 0;
 
