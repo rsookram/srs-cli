@@ -333,11 +333,6 @@ impl Srs {
             .optional()?
             .expect("card is not suspended");
 
-        tx.execute(
-            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
-            params![card_id, true, now],
-        )?;
-
         let was_correct: Option<bool> = tx
             .query_row(
                 "SELECT isCorrect FROM Answer WHERE cardId = ? ORDER BY timestamp DESC LIMIT 1",
@@ -345,6 +340,11 @@ impl Srs {
                 |row| row.get(0),
             )
             .optional()?;
+
+        tx.execute(
+            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
+            params![card_id, true, now],
+        )?;
 
         let interval_modifier: u16 = tx.query_row(
             "SELECT intervalModifier FROM Deck JOIN Card ON Deck.id = Card.deckId WHERE Card.id = ?",
@@ -744,6 +744,64 @@ mod tests {
         let card = srs.get_card(card.id);
 
         assert!(card.is_err(), "got a card {:?}", card);
+
+        Ok(())
+    }
+
+    #[test]
+    fn answering_correct_removes_from_queue() -> Result<()> {
+        let mut srs = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        srs.answer_correct(card.id)?;
+
+        let for_review = srs.cards_to_review()?;
+        assert_eq!(for_review.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn answering_wrong_leaves_card_in_queue() -> Result<()> {
+        let mut srs = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        srs.answer_wrong(card.id)?;
+
+        let for_review = srs
+            .cards_to_review()?
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("nothing to review"))?;
+        assert_eq!(for_review, ("testName".to_string(), vec![card]));
+
+        Ok(())
+    }
+
+    #[test]
+    fn mark_leech_after_too_many_wrong_answers() -> Result<()> {
+        let mut srs = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        for _ in 1..=WRONG_ANSWERS_FOR_LEECH {
+            srs.answer_wrong(card.id)?;
+        }
+
+        let for_review = srs.cards_to_review()?;
+        assert_eq!(for_review.len(), 0);
+
+        let preview = srs
+            .card_previews()?
+            .into_iter()
+            .next()
+            .ok_or(anyhow!("no cards"))?;
+        assert!(preview.is_leech);
 
         Ok(())
     }
