@@ -16,7 +16,6 @@ use schedule::LowKeyAnki;
 use schedule::Schedule;
 use std::path::Path;
 use time::Duration;
-use time::OffsetDateTime;
 use time::UtcOffset;
 
 const MIN_INTERVAL_MODIFIER: u16 = 50;
@@ -542,6 +541,7 @@ mod tests {
     use anyhow::anyhow;
     use std::cell::Cell;
     use std::rc::Rc;
+    use time::OffsetDateTime;
 
     struct DoublingSchedule;
 
@@ -553,7 +553,9 @@ mod tests {
             interval_modifier: u16,
         ) -> u16 {
             match was_correct {
-                Some(true) => previous_interval * 2 * interval_modifier,
+                Some(true) => {
+                    (previous_interval as f64 * 2.0 * (interval_modifier as f64 / 100.0)) as u16
+                }
                 Some(false) => previous_interval / 2,
                 None => 1,
             }
@@ -802,6 +804,116 @@ mod tests {
         assert_eq!(for_review, ("testName".to_string(), vec![card]));
 
         Ok(())
+    }
+
+    #[test]
+    fn answering_correct_increases_interval() -> Result<()> {
+        let (mut srs, now) = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        let forward_by_days = move |days| {
+            now.set(now.get() + Duration::days(days));
+        };
+
+        let intervals = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256];
+
+        for next_interval in intervals {
+            forward_by_days(next_interval);
+            assert_scheduled(&srs, &card);
+
+            srs.answer_correct(card.id)?;
+        }
+
+        forward_by_days(1024);
+        assert_not_scheduled(&srs, &card); // auto-suspend
+
+        Ok(())
+    }
+
+    #[test]
+    fn answering_correct_increases_interval_with_interval_modifier() -> Result<()> {
+        let (mut srs, now) = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        srs.update_interval_modifier(deck.id, 200)?;
+
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        let forward_by_days = move |days| {
+            now.set(now.get() + Duration::days(days));
+        };
+
+        let intervals = [0, 1, 4, 16, 64, 256];
+
+        for next_interval in intervals {
+            forward_by_days(next_interval);
+            assert_scheduled(&srs, &card);
+
+            srs.answer_correct(card.id)?;
+        }
+
+        forward_by_days(1024);
+        assert_not_scheduled(&srs, &card); // auto-suspend
+
+        Ok(())
+    }
+
+    #[test]
+    fn answering_wrong_decreases_interval() -> Result<()> {
+        let (mut srs, now) = new_srs()?;
+
+        let deck = create_and_return_deck(&mut srs, "testName")?;
+        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+
+        let forward_by_days = move |days| {
+            now.set(now.get() + Duration::days(days));
+        };
+
+        srs.answer_correct(card.id)?;
+
+        forward_by_days(1);
+        assert_scheduled(&srs, &card);
+
+        srs.answer_correct(card.id)?;
+
+        forward_by_days(2);
+        assert_scheduled(&srs, &card);
+
+        srs.answer_correct(card.id)?;
+
+        forward_by_days(4);
+        assert_scheduled(&srs, &card);
+
+        srs.answer_wrong(card.id)?;
+
+        forward_by_days(2);
+        assert_scheduled(&srs, &card);
+
+        Ok(())
+    }
+
+    fn assert_scheduled(srs: &Srs, card: &Card) {
+        let found = srs
+            .cards_to_review()
+            .unwrap()
+            .iter()
+            .flat_map(|(_, c)| c)
+            .any(|c| c.id == card.id);
+
+        assert!(found, "card isn't scheduled for review")
+    }
+
+    fn assert_not_scheduled(srs: &Srs, card: &Card) {
+        let found = srs
+            .cards_to_review()
+            .unwrap()
+            .iter()
+            .flat_map(|(_, c)| c)
+            .any(|c| c.id == card.id);
+
+        assert!(!found, "card is scheduled for review")
     }
 
     #[test]
