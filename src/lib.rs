@@ -1,7 +1,9 @@
+mod clock;
 mod schedule;
 
 use anyhow::bail;
 use anyhow::Result;
+use clock::Clock;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -24,6 +26,7 @@ const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
 pub struct Srs {
     conn: Connection,
     schedule: Box<dyn Schedule>,
+    clock: Box<dyn Clock>,
     offset: UtcOffset,
 }
 
@@ -74,19 +77,21 @@ impl Srs {
 
         Ok(Self {
             conn,
+            clock: Box::new(clock::UtcClock),
             schedule: Box::new(LowKeyAnki::new()),
             offset: UtcOffset::current_local_offset()?,
         })
     }
 
     #[cfg(test)]
-    fn open_in_memory(schedule: Box<dyn Schedule>) -> Result<Self> {
+    fn open_in_memory(schedule: Box<dyn Schedule>, clock: Box<dyn Clock>) -> Result<Self> {
         let conn = Connection::open_in_memory()?;
 
         conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
 
         Ok(Self {
             conn,
+            clock,
             schedule,
             offset: UtcOffset::UTC,
         })
@@ -135,7 +140,7 @@ impl Srs {
             bail!("deck name can't be empty");
         }
 
-        let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
             .try_into()
             .expect("valid timestamp");
 
@@ -193,7 +198,7 @@ impl Srs {
     pub fn create_card(&mut self, deck_id: u64, front: String, back: String) -> Result<()> {
         let tx = self.conn.transaction()?;
 
-        let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
             .try_into()
             .expect("valid timestamp");
 
@@ -316,7 +321,7 @@ impl Srs {
     }
 
     pub fn answer_correct(&mut self, card_id: u64) -> Result<()> {
-        let now_date_time = OffsetDateTime::now_utc();
+        let now_date_time = self.clock.now();
 
         let now: u64 = (now_date_time.unix_timestamp() * 1000)
             .try_into()
@@ -379,7 +384,7 @@ impl Srs {
     }
 
     pub fn answer_wrong(&mut self, card_id: u64) -> Result<()> {
-        let now: u64 = (OffsetDateTime::now_utc().unix_timestamp() * 1000)
+        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
             .try_into()
             .expect("valid timestamp");
 
@@ -489,7 +494,7 @@ impl Srs {
     }
 
     fn start_of_tomorrow(&self) -> Result<u64> {
-        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let now = self.clock.now().to_offset(self.offset);
         let start_of_tomorrow = now
             .date()
             .saturating_add(Duration::days(1))
@@ -503,7 +508,7 @@ impl Srs {
     }
 
     fn end_of_tomorrow(&self) -> Result<u64> {
-        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let now = self.clock.now().to_offset(self.offset);
         let end_of_tomorrow = now
             .date()
             .saturating_add(Duration::days(1))
@@ -517,7 +522,7 @@ impl Srs {
     }
 
     fn thirty_days_ago(&self) -> Result<u64> {
-        let now = OffsetDateTime::now_utc().to_offset(self.offset);
+        let now = self.clock.now().to_offset(self.offset);
         let end_of_tomorrow = now
             .date()
             .saturating_sub(Duration::days(30))
@@ -535,6 +540,8 @@ impl Srs {
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     struct DoublingSchedule;
 
@@ -553,16 +560,31 @@ mod tests {
         }
     }
 
-    fn new_srs() -> Result<Srs> {
-        let mut srs = Srs::open_in_memory(Box::new(DoublingSchedule))?;
+    struct TimeMachine {
+        now: Rc<Cell<OffsetDateTime>>,
+    }
+
+    impl Clock for TimeMachine {
+        fn now(&self) -> OffsetDateTime {
+            self.now.get()
+        }
+    }
+
+    fn new_srs() -> Result<(Srs, Rc<Cell<OffsetDateTime>>)> {
+        let now = Rc::new(Cell::new(OffsetDateTime::UNIX_EPOCH + Duration::weeks(10)));
+
+        let mut srs = Srs::open_in_memory(
+            Box::new(DoublingSchedule),
+            Box::new(TimeMachine { now: now.clone() }),
+        )?;
         srs.init()?;
 
-        Ok(srs)
+        Ok((srs, now))
     }
 
     #[test]
     fn empty_db() -> Result<()> {
-        let srs = new_srs()?;
+        let (srs, _) = new_srs()?;
 
         assert_eq!(srs.decks()?.len(), 0);
         assert_eq!(srs.card_previews()?.len(), 0);
@@ -585,7 +607,7 @@ mod tests {
 
     #[test]
     fn create_deck() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         assert_eq!(deck.name, "testName");
@@ -599,7 +621,7 @@ mod tests {
 
     #[test]
     fn edit_deck() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -612,7 +634,7 @@ mod tests {
 
     #[test]
     fn delete_deck() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -628,7 +650,7 @@ mod tests {
 
     #[test]
     fn create_card() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -671,7 +693,7 @@ mod tests {
 
     #[test]
     fn edit_card() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -689,7 +711,7 @@ mod tests {
 
     #[test]
     fn switch_card() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let deck2 = create_and_return_deck(&mut srs, "another deck")?;
@@ -733,7 +755,7 @@ mod tests {
 
     #[test]
     fn delete_card() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
 
@@ -750,7 +772,7 @@ mod tests {
 
     #[test]
     fn answering_correct_removes_from_queue() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
@@ -765,7 +787,7 @@ mod tests {
 
     #[test]
     fn answering_wrong_leaves_card_in_queue() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
@@ -784,7 +806,7 @@ mod tests {
 
     #[test]
     fn mark_leech_after_too_many_wrong_answers() -> Result<()> {
-        let mut srs = new_srs()?;
+        let (mut srs, _) = new_srs()?;
 
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
