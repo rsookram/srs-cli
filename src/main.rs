@@ -47,7 +47,7 @@ fn add(mut srs: Srs, deck_id: u64) -> Result<()> {
 
 fn cards(srs: Srs) -> Result<()> {
     for card in srs.card_previews()? {
-        let front = card.front.replace('\n', "");
+        let front = card.front.replace('\n', " ");
 
         if card.is_leech {
             println!("[leech] {} {}", card.id, front);
