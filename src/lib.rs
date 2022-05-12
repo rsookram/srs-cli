@@ -813,20 +813,16 @@ mod tests {
         let deck = create_and_return_deck(&mut srs, "testName")?;
         let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
 
-        let forward_by_days = move |days| {
-            now.set(now.get() + Duration::days(days));
-        };
-
         let intervals = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256];
 
         for next_interval in intervals {
-            forward_by_days(next_interval);
+            now.set(now.get() + Duration::days(next_interval));
             assert_scheduled(&srs, &card);
 
             srs.answer_correct(card.id)?;
         }
 
-        forward_by_days(1024);
+        now.set(now.get() + Duration::days(1024));
         assert_not_scheduled(&srs, &card); // auto-suspend
 
         Ok(())
@@ -841,20 +837,16 @@ mod tests {
 
         let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
 
-        let forward_by_days = move |days| {
-            now.set(now.get() + Duration::days(days));
-        };
-
         let intervals = [0, 1, 4, 16, 64, 256];
 
         for next_interval in intervals {
-            forward_by_days(next_interval);
+            now.set(now.get() + Duration::days(next_interval));
             assert_scheduled(&srs, &card);
 
             srs.answer_correct(card.id)?;
         }
 
-        forward_by_days(1024);
+        now.set(now.get() + Duration::days(1024));
         assert_not_scheduled(&srs, &card); // auto-suspend
 
         Ok(())
