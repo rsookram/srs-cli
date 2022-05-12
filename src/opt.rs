@@ -10,14 +10,14 @@ use std::process;
 #[derive(Debug)]
 pub struct Opt {
     /// The subcommand to run.
-    pub command: Commands,
+    pub subcommand: Subcommand,
 
     /// The path of the database file. Defaults to srs.db.
     pub path: PathBuf,
 }
 
 #[derive(Debug)]
-pub enum Commands {
+pub enum Subcommand {
     Add { deck_id: u64 },
     Cards,
     CreateDeck { name: String },
@@ -64,32 +64,32 @@ impl Opt {
             None => bail!("missing subcommand"),
         };
 
-        let command = match subcommand.as_ref() {
-            "add" => Commands::Add {
+        let subcommand = match subcommand.as_ref() {
+            "add" => Subcommand::Add {
                 deck_id: args.value_from_str("--deck-id")?,
             },
-            "cards" => Commands::Cards,
-            "create-deck" => Commands::CreateDeck {
+            "cards" => Subcommand::Cards,
+            "create-deck" => Subcommand::CreateDeck {
                 name: args.value_from_str("--name")?,
             },
-            "decks" => Commands::Decks,
-            "delete" => Commands::Delete {
+            "decks" => Subcommand::Decks,
+            "delete" => Subcommand::Delete {
                 card_id: args.value_from_str("--card-id")?,
             },
-            "delete-deck" => Commands::DeleteDeck {
+            "delete-deck" => Subcommand::DeleteDeck {
                 deck_id: args.value_from_str("--deck-id")?,
             },
-            "edit" => Commands::Edit {
+            "edit" => Subcommand::Edit {
                 card_id: args.value_from_str("--card-id")?,
             },
-            "init" => Commands::Init,
-            "int-mod" => Commands::IntMod {
+            "init" => Subcommand::Init,
+            "int-mod" => Subcommand::IntMod {
                 deck_id: args.value_from_str("--deck-id")?,
                 modifier: args.value_from_str("--modifier")?,
             },
-            "review" => Commands::Review,
-            "stats" => Commands::Stats,
-            "switch" => Commands::Switch {
+            "review" => Subcommand::Review,
+            "stats" => Subcommand::Stats,
+            "switch" => Subcommand::Switch {
                 card_id: args.value_from_str("--card-id")?,
                 deck_id: args.value_from_str("--deck-id")?,
             },
@@ -98,7 +98,7 @@ impl Opt {
 
         let remaining = args.finish();
         if remaining.is_empty() {
-            Ok(Self { command, path })
+            Ok(Self { subcommand, path })
         } else {
             Err(anyhow!(
                 "found arguments which weren't expected: {remaining:?}"

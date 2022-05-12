@@ -16,9 +16,9 @@ fn main() -> Result<()> {
 
     let mut app = App::new(srs, stdout);
 
-    use opt::Commands::*;
+    use opt::Subcommand::*;
 
-    let result = match &opt.command {
+    let result = match &opt.subcommand {
         Add { deck_id } => app.add(*deck_id),
 
         Cards => app.cards(),
