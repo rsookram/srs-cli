@@ -10,7 +10,10 @@ fn main() -> Result<()> {
 
     let srs = Srs::open(&opt.path)?;
 
-    let mut app = App::new(srs);
+    let stdout = std::io::stdout();
+    let stdout = stdout.lock();
+
+    let mut app = App::new(srs, stdout);
 
     use opt::Commands::*;
 

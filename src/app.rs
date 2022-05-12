@@ -6,14 +6,16 @@ use dialoguer::Confirm;
 use srs_cli::Card;
 use srs_cli::DeckStats;
 use srs_cli::GlobalStats;
+use std::io;
 
-pub struct App {
+pub struct App<W: io::Write> {
     srs: Srs,
+    output: W,
 }
 
-impl App {
-    pub fn new(srs: Srs) -> Self {
-        Self { srs }
+impl<W: io::Write> App<W> {
+    pub fn new(srs: Srs, output: W) -> Self {
+        Self { srs, output }
     }
 
     pub fn add(&mut self, deck_id: u64) -> Result<()> {
@@ -22,14 +24,14 @@ impl App {
         self.srs.create_card(deck_id, front, back)
     }
 
-    pub fn cards(self) -> Result<()> {
+    pub fn cards(&mut self) -> Result<()> {
         for card in self.srs.card_previews()? {
             let front = card.front.replace('\n', " ");
 
             if card.is_leech {
-                println!("[leech] {} {front}", card.id);
+                writeln!(self.output, "[leech] {} {front}", card.id)?;
             } else {
-                println!("{} {front}", card.id);
+                writeln!(self.output, "{} {front}", card.id)?;
             }
         }
 
@@ -39,13 +41,17 @@ impl App {
     pub fn create_deck(&mut self, name: &str) -> Result<()> {
         self.srs.create_deck(name)?;
 
-        println!("Created {name}");
+        writeln!(self.output, "Created {name}")?;
         Ok(())
     }
 
-    pub fn decks(&self) -> Result<()> {
+    pub fn decks(&mut self) -> Result<()> {
         for deck in self.srs.decks()? {
-            println!("{} {} - {}%", deck.id, deck.name, deck.interval_modifier);
+            writeln!(
+                self.output,
+                "{} {} - {}%",
+                deck.id, deck.name, deck.interval_modifier
+            )?;
         }
 
         Ok(())
@@ -62,7 +68,7 @@ impl App {
             .interact()?
         {
             self.srs.delete_card(card_id)?;
-            println!("... deleted.");
+            writeln!(self.output, "... deleted.")?;
         }
 
         Ok(())
@@ -76,7 +82,7 @@ impl App {
             .interact()?
         {
             self.srs.delete_deck(deck_id)?;
-            println!("... deleted.");
+            writeln!(self.output, "... deleted.")?;
         }
 
         Ok(())
@@ -99,7 +105,10 @@ impl App {
 
         self.srs.update_interval_modifier(deck_id, modifier)?;
 
-        println!("Set interval modifier for {name} to {modifier}");
+        writeln!(
+            self.output,
+            "Set interval modifier for {name} to {modifier}"
+        )?;
 
         Ok(())
     }
@@ -107,15 +116,19 @@ impl App {
     pub fn review(&mut self) -> Result<()> {
         let cards = self.srs.cards_to_review()?;
 
-        println!(
+        writeln!(
+            self.output,
             "{} cards to review",
             cards.iter().flat_map(|(_, cc)| cc).count()
-        );
+        )?;
 
         for (deck_name, cards) in cards {
             let num_cards = cards.len();
 
-            println!("\n{num_cards} cards to review in {deck_name}\n");
+            writeln!(
+                self.output,
+                "\n{num_cards} cards to review in {deck_name}\n"
+            )?;
 
             let mut num_correct = 0;
 
@@ -128,19 +141,19 @@ impl App {
                     self.srs.answer_wrong(card.id)?;
                 }
 
-                println!();
+                writeln!(self.output)?;
             }
 
-            println!("Answered {num_correct}/{num_cards} correctly")
+            writeln!(self.output, "Answered {num_correct}/{num_cards} correctly")?;
         }
 
-        println!("Finished review");
+        writeln!(self.output, "Finished review")?;
 
         Ok(())
     }
 
-    fn review_card(&self, card: &Card) -> Result<bool> {
-        println!("{}\n", &card.front);
+    fn review_card(&mut self, card: &Card) -> Result<bool> {
+        writeln!(self.output, "{}\n", &card.front)?;
 
         Confirm::with_theme(&PlainPrompt)
             .with_prompt("Press enter to show answer")
@@ -149,48 +162,55 @@ impl App {
             .report(false)
             .interact()?;
 
-        println!("{}", "-".repeat(79));
+        writeln!(self.output, "{}", "-".repeat(79))?;
 
-        println!("{}\n", &card.back);
+        writeln!(self.output, "{}\n", &card.back)?;
 
         Ok(Confirm::new().with_prompt("Correct?").interact()?)
     }
 
-    pub fn stats(&self) -> Result<()> {
+    pub fn stats(&mut self) -> Result<()> {
         let (global_stats, deck_stats) = self.srs.stats()?;
 
-        self.print_global(&global_stats);
+        self.output_global(&global_stats)?;
 
         for stat in deck_stats.iter() {
-            println!();
-            self.print_deck(stat);
+            writeln!(self.output)?;
+            self.output_deck(stat)?;
         }
 
         Ok(())
     }
 
-    fn print_global(&self, stats: &GlobalStats) {
+    fn output_global(&mut self, stats: &GlobalStats) -> Result<()> {
         let total = stats.active + stats.suspended + (stats.leech as u32);
-        println!("{} / {total} active", stats.active);
+        writeln!(self.output, "{} / {total} active", stats.active)?;
 
         if stats.leech > 0 {
-            println!("{} leeches", stats.leech);
+            writeln!(self.output, "{} leeches", stats.leech)?;
         }
 
-        println!("Review tomorrow: {}", stats.for_review);
+        writeln!(self.output, "Review tomorrow: {}", stats.for_review)?;
+
+        Ok(())
     }
 
-    fn print_deck(&self, stats: &DeckStats) {
+    fn output_deck(&mut self, stats: &DeckStats) -> Result<()> {
         let total = stats.active + stats.suspended + (stats.leech as u32);
-        println!("{}\n  {} / {total} active", stats.name, stats.active);
+        writeln!(
+            self.output,
+            "{}\n  {} / {total} active",
+            stats.name, stats.active
+        )?;
 
         if stats.leech > 0 {
-            println!("  {} leeches", stats.leech);
+            writeln!(self.output, "  {} leeches", stats.leech)?;
         }
 
         let num_answered = stats.correct + stats.wrong;
 
-        println!(
+        writeln!(
+            self.output,
             "  Past month accuracy: {:.0}% ({} / {num_answered})",
             if num_answered > 0 {
                 stats.correct as f32 / num_answered as f32 * 100.0
@@ -198,7 +218,9 @@ impl App {
                 100.0
             },
             stats.correct,
-        );
+        )?;
+
+        Ok(())
     }
 
     pub fn switch(&mut self, card_id: u64, deck_id: u64) -> Result<()> {
@@ -212,7 +234,7 @@ impl App {
             .interact()?
         {
             self.srs.switch_deck(card_id, deck_id)?;
-            println!("... switched.");
+            writeln!(self.output, "... switched.")?;
         }
 
         Ok(())
