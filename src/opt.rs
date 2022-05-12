@@ -49,7 +49,7 @@ impl Opt {
         }
 
         Self::parse(args).unwrap_or_else(|e| {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             process::exit(1);
         })
     }
@@ -101,8 +101,7 @@ impl Opt {
             Ok(Self { command, path })
         } else {
             Err(anyhow!(
-                "found arguments which weren't expected: {:?}",
-                remaining
+                "found arguments which weren't expected: {remaining:?}"
             ))
         }
     }

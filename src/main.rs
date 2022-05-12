@@ -50,9 +50,9 @@ fn cards(srs: Srs) -> Result<()> {
         let front = card.front.replace('\n', " ");
 
         if card.is_leech {
-            println!("[leech] {} {}", card.id, front);
+            println!("[leech] {} {front}", card.id);
         } else {
-            println!("{} {}", card.id, front);
+            println!("{} {front}", card.id);
         }
     }
 
@@ -95,7 +95,7 @@ fn delete_deck(mut srs: Srs, deck_id: u64) -> Result<()> {
     let name = srs.get_deck(deck_id)?.name;
 
     if Confirm::new()
-        .with_prompt(format!("Are you sure you want to delete '{}'", name))
+        .with_prompt(format!("Are you sure you want to delete '{name}'"))
         .interact()?
     {
         srs.delete_deck(deck_id)?;
@@ -133,8 +133,7 @@ fn switch(mut srs: Srs, card_id: u64, deck_id: u64) -> Result<()> {
 
     if Confirm::new()
         .with_prompt(format!(
-            "Are you sure you want to switch '{}' to {}?",
-            front, deck_name
+            "Are you sure you want to switch '{front}' to {deck_name}?"
         ))
         .interact()?
     {
@@ -240,7 +239,7 @@ mod stats {
 
     fn print_global(stats: &GlobalStats) {
         let total = stats.active + stats.suspended + (stats.leech as u32);
-        println!("{} / {} active", stats.active, total);
+        println!("{} / {total} active", stats.active);
 
         if stats.leech > 0 {
             println!("{} leeches", stats.leech);

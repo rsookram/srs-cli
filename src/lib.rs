@@ -767,7 +767,7 @@ mod tests {
 
         let card = srs.get_card(card.id);
 
-        assert!(card.is_err(), "got a card {:?}", card);
+        assert!(card.is_err(), "got a card {card:?}");
 
         Ok(())
     }
