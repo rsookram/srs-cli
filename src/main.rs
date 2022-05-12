@@ -4,6 +4,7 @@ mod opt;
 use crate::app::App;
 use anyhow::Result;
 use srs_cli::Srs;
+use std::io;
 
 fn main() -> Result<()> {
     let opt = opt::Opt::from_args();
@@ -17,7 +18,7 @@ fn main() -> Result<()> {
 
     use opt::Commands::*;
 
-    match &opt.command {
+    let result = match &opt.command {
         Add { deck_id } => app.add(*deck_id),
 
         Cards => app.cards(),
@@ -41,5 +42,14 @@ fn main() -> Result<()> {
         Stats => app.stats(),
 
         Switch { card_id, deck_id } => app.switch(*card_id, *deck_id),
+    };
+
+    if let Err(err) = result {
+        match err.downcast_ref::<io::Error>() {
+            Some(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+            _ => Err(err),
+        }
+    } else {
+        result
     }
 }
