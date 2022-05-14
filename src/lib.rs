@@ -1,4 +1,5 @@
 mod clock;
+pub mod prompt;
 mod schedule;
 
 use anyhow::bail;

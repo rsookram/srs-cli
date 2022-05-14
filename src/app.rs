@@ -1,8 +1,7 @@
 use crate::Srs;
 use anyhow::anyhow;
 use anyhow::Result;
-use dialoguer::theme::Theme;
-use dialoguer::Confirm;
+use srs_cli::prompt;
 use srs_cli::Card;
 use srs_cli::DeckStats;
 use srs_cli::GlobalStats;
@@ -60,13 +59,10 @@ impl<W: io::Write> App<W> {
     pub fn delete(&mut self, card_id: u64) -> Result<()> {
         let front: String = self.srs.get_card(card_id)?.front;
 
-        if Confirm::new()
-            .with_prompt(format!(
-                "Are you sure you want to delete '{}'",
-                front.replace('\n', " ")
-            ))
-            .interact()?
-        {
+        if prompt::binary(format!(
+            "Are you sure you want to delete '{}'",
+            front.replace('\n', " ")
+        ))? {
             self.srs.delete_card(card_id)?;
             writeln!(self.output, "... deleted.")?;
         }
@@ -77,10 +73,7 @@ impl<W: io::Write> App<W> {
     pub fn delete_deck(&mut self, deck_id: u64) -> Result<()> {
         let name = self.srs.get_deck(deck_id)?.name;
 
-        if Confirm::new()
-            .with_prompt(format!("Are you sure you want to delete '{name}'"))
-            .interact()?
-        {
+        if prompt::binary(format!("Are you sure you want to delete '{name}'"))? {
             self.srs.delete_deck(deck_id)?;
             writeln!(self.output, "... deleted.")?;
         }
@@ -155,18 +148,13 @@ impl<W: io::Write> App<W> {
     fn review_card(&mut self, card: &Card) -> Result<bool> {
         writeln!(self.output, "{}\n", &card.front)?;
 
-        Confirm::with_theme(&PlainPrompt)
-            .with_prompt("Press enter to show answer")
-            .default(true)
-            .show_default(false)
-            .report(false)
-            .interact()?;
+        prompt::any("Press enter to show answer")?;
 
         writeln!(self.output, "{}", "-".repeat(79))?;
 
         writeln!(self.output, "{}\n", &card.back)?;
 
-        Ok(Confirm::new().with_prompt("Correct?").interact()?)
+        Ok(prompt::binary("Correct?")?)
     }
 
     pub fn stats(&mut self) -> Result<()> {
@@ -227,31 +215,14 @@ impl<W: io::Write> App<W> {
         let front = self.srs.get_card(card_id)?.front;
         let deck_name = self.srs.get_deck(deck_id)?.name;
 
-        if Confirm::new()
-            .with_prompt(format!(
-                "Are you sure you want to switch '{front}' to {deck_name}?"
-            ))
-            .interact()?
-        {
+        if prompt::binary(format!(
+            "Are you sure you want to switch '{front}' to {deck_name}?"
+        ))? {
             self.srs.switch_deck(card_id, deck_id)?;
             writeln!(self.output, "... switched.")?;
         }
 
         Ok(())
-    }
-}
-
-struct PlainPrompt;
-
-impl Theme for PlainPrompt {
-    /// Formats a confirm prompt without a trailing "[y/n]"
-    fn format_confirm_prompt(
-        &self,
-        f: &mut dyn std::fmt::Write,
-        prompt: &str,
-        _default: Option<bool>,
-    ) -> std::fmt::Result {
-        write!(f, "{}", &prompt)
     }
 }
 
