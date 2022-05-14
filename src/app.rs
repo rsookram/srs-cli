@@ -60,7 +60,7 @@ impl<W: io::Write> App<W> {
         let front: String = self.srs.get_card(card_id)?.front;
 
         if prompt::binary(format!(
-            "Are you sure you want to delete '{}'",
+            "Are you sure you want to delete '{}'?",
             front.replace('\n', " ")
         ))? {
             self.srs.delete_card(card_id)?;
@@ -73,7 +73,7 @@ impl<W: io::Write> App<W> {
     pub fn delete_deck(&mut self, deck_id: u64) -> Result<()> {
         let name = self.srs.get_deck(deck_id)?.name;
 
-        if prompt::binary(format!("Are you sure you want to delete '{name}'"))? {
+        if prompt::binary(format!("Are you sure you want to delete '{name}'?"))? {
             self.srs.delete_deck(deck_id)?;
             writeln!(self.output, "... deleted.")?;
         }
@@ -148,13 +148,13 @@ impl<W: io::Write> App<W> {
     fn review_card(&mut self, card: &Card) -> Result<bool> {
         writeln!(self.output, "{}\n", &card.front)?;
 
-        prompt::any("Press enter to show answer")?;
+        prompt::any("Press any key to show answer")?;
 
         writeln!(self.output, "{}", "-".repeat(79))?;
 
         writeln!(self.output, "{}\n", &card.back)?;
 
-        Ok(prompt::binary("Correct?")?)
+        prompt::binary("Correct?")
     }
 
     pub fn stats(&mut self) -> Result<()> {
