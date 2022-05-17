@@ -150,7 +150,7 @@ impl<W: io::Write> App<W> {
 
         prompt::any("Press any key to show answer")?;
 
-        writeln!(self.output, "{}", "-".repeat(79))?;
+        writeln!(self.output, "{}", "─".repeat(39))?;
 
         writeln!(self.output, "{}\n", &card.back)?;
 
