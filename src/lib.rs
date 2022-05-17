@@ -203,7 +203,7 @@ impl Srs {
             .expect("valid timestamp");
 
         let card_id: u64 = tx.query_row(
-            "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?) RETURNING *",
+            "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?) RETURNING id",
             params![deck_id, front, back, now],
             |row| row.get(0),
         )?;
