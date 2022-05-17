@@ -3,6 +3,7 @@
 use anyhow::bail;
 use anyhow::Result;
 use std::io::{stdin, stdout, Write};
+use termion::clear;
 use termion::event::{Event, Key};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
@@ -59,7 +60,7 @@ pub fn any(prompt: impl AsRef<str>) -> Result<()> {
         }
     }
 
-    write!(stdout, "\r\n")?;
+    write!(stdout, "\r{}", clear::AfterCursor)?;
     stdout.flush()?;
 
     Ok(())
