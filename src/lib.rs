@@ -1,4 +1,5 @@
 mod clock;
+pub mod editor;
 pub mod prompt;
 mod schedule;
 

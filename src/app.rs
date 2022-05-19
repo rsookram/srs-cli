@@ -1,6 +1,7 @@
 use crate::Srs;
 use anyhow::anyhow;
 use anyhow::Result;
+use srs_cli::editor;
 use srs_cli::prompt;
 use srs_cli::Card;
 use srs_cli::DeckStats;
@@ -230,7 +231,7 @@ fn open_editor(front: &str, back: &str) -> Result<(String, String)> {
     let divider = "----------";
     let template = format!("{front}\n{divider}\n{back}\n");
 
-    let output = scrawl::with(&template)?;
+    let output = editor::edit(&template)?;
 
     output
         .split_once(divider)
