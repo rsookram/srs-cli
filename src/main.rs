@@ -11,8 +11,7 @@ fn main() -> Result<()> {
 
     let srs = Srs::open(&opt.path)?;
 
-    let stdout = std::io::stdout();
-    let stdout = stdout.lock();
+    let stdout = std::io::stdout().lock();
 
     let mut app = App::new(srs, stdout);
 
