@@ -16,12 +16,12 @@ use std::time::SystemTime;
 pub fn edit(text: &str) -> Result<String> {
     let path = temp_path()?;
 
-    let mut temp_file = File::options()
+    let temp_file = File::options()
         .read(true)
         .write(true)
         .create_new(true)
         .open(&path)?;
-    let result = get_input(&mut temp_file, &path, text);
+    let result = get_input(&temp_file, &path, text);
 
     fs::remove_file(&path)?;
 
