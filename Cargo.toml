@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.57"
+fastrand = "1.7.0"
 pico-args = "0.4.2"
-rand = {version = "0.8.5", default-features = false, features = ["getrandom", "small_rng"]}
 rusqlite = {version = "0.27.0", features = ["bundled"]}
 termion = "1.5.6"
 time = {version = "0.3.9", features = ["local-offset"]}

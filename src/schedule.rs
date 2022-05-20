@@ -1,25 +1,26 @@
-use rand::rngs::SmallRng;
-use rand::Rng;
-use rand::SeedableRng;
+use fastrand::Rng;
 
 pub trait Schedule {
     fn next_interval(
-        &mut self,
+        &self,
         previous_interval: u16,
         was_correct: Option<bool>,
         interval_modifier: u16,
     ) -> u16;
 }
 
+/// The reduction factor applied to the next interval when the card was answered incorrectly.
 const WRONG_ANSWER_PENALTY: f64 = 0.7;
 
+/// A [`Schedule`] which implements
+/// [low-key Anki](https://refold.la/roadmap/stage-1/a/anki-setup/).
 pub struct LowKeyAnki {
-    rng: Box<dyn rand::RngCore>,
+    rng: Rng,
 }
 
 impl Schedule for LowKeyAnki {
     fn next_interval(
-        &mut self,
+        &self,
         previous_interval: u16,
         was_correct: Option<bool>,
         interval_modifier: u16,
@@ -41,9 +42,9 @@ impl Schedule for LowKeyAnki {
 
                     let max_fuzz =
                         (previous_interval as f64 * self.fuzz_factor(previous_interval)) as u16;
-                    let fuzz = self.rng.gen_range(0..=max_fuzz);
+                    let fuzz = self.rng.u16(0..=max_fuzz);
 
-                    if self.rng.gen() {
+                    if self.rng.bool() {
                         next += fuzz;
                     } else {
                         next -= fuzz;
@@ -60,12 +61,13 @@ impl Schedule for LowKeyAnki {
 }
 
 impl LowKeyAnki {
+    /// Creates a new schedule implementing low-key Anki.
     pub fn new() -> Self {
-        Self {
-            rng: Box::new(SmallRng::from_entropy()),
-        }
+        Self { rng: Rng::new() }
     }
 
+    /// Returns a value in (0, 1) used to randomize the next interval for a card. This prevents
+    /// cards getting grouped together based on when they were added.
     fn fuzz_factor(&self, previous_interval: u16) -> f64 {
         if previous_interval < 7 {
             0.25
@@ -80,37 +82,16 @@ impl LowKeyAnki {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::RngCore;
-
-    struct NotRandom;
-
-    impl RngCore for NotRandom {
-        fn next_u32(&mut self) -> u32 {
-            self.next_u64() as u32
-        }
-
-        fn next_u64(&mut self) -> u64 {
-            0
-        }
-
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
-            dest.fill(0);
-        }
-
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-            Ok(self.fill_bytes(dest))
-        }
-    }
 
     fn new_schedule() -> LowKeyAnki {
         LowKeyAnki {
-            rng: Box::new(NotRandom),
+            rng: Rng::with_seed(0),
         }
     }
 
     #[test]
     fn first_answer() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         let next = schedule.next_interval(0, None, 100);
 
@@ -119,7 +100,7 @@ mod tests {
 
     #[test]
     fn first_review() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         let next = schedule.next_interval(1, Some(true), 100);
 
@@ -128,7 +109,7 @@ mod tests {
 
     #[test]
     fn apply_wrong_penalty() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(false), 100);
 
@@ -137,26 +118,26 @@ mod tests {
 
     #[test]
     fn correct_answer() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 100);
 
-        assert_eq!(next, 125);
+        assert_eq!(next, 124);
     }
 
     #[test]
     fn increase_by_interval_modifier() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 200);
 
-        assert_eq!(next, 250);
+        assert_eq!(next, 249);
     }
 
     #[test]
     #[should_panic]
     fn expect_previous_answer_for_large_interval() {
-        let mut schedule = new_schedule();
+        let schedule = new_schedule();
 
         schedule.next_interval(50, None, 200);
     }

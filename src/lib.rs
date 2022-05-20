@@ -6,9 +6,7 @@ mod schedule;
 use anyhow::bail;
 use anyhow::Result;
 use clock::Clock;
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use fastrand::Rng;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::types::Null;
@@ -295,7 +293,7 @@ impl Srs {
             return Ok(vec![]);
         }
 
-        let mut rng = SmallRng::from_entropy();
+        let rng = Rng::new();
 
         let mut cards_by_deck = vec![];
 
@@ -308,14 +306,14 @@ impl Srs {
 
                 current_deck = deck_name.clone();
 
-                cards.shuffle(&mut rng);
+                rng.shuffle(&mut cards);
                 cards_by_deck.push((old_deck_name, cards));
             }
 
             current_cards.push(card);
         }
 
-        current_cards.shuffle(&mut rng);
+        rng.shuffle(&mut current_cards);
         cards_by_deck.push((current_deck, current_cards));
 
         Ok(cards_by_deck)
@@ -549,7 +547,7 @@ mod tests {
 
     impl Schedule for DoublingSchedule {
         fn next_interval(
-            &mut self,
+            &self,
             previous_interval: u16,
             was_correct: Option<bool>,
             interval_modifier: u16,
