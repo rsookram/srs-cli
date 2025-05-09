@@ -46,7 +46,7 @@ fn get_input(mut file: &File, path: &Path, text: &str) -> Result<String> {
         .or_else(|_| env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
 
-    if !Command::new(&cmd).arg(&path).status()?.success() {
+    if !Command::new(&cmd).arg(path).status()?.success() {
         bail!("failed to run {cmd}");
     }
 

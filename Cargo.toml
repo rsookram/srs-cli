@@ -1,15 +1,15 @@
 [package]
 name = "srs-cli"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-anyhow = "1.0.57"
-fastrand = "1.7.0"
+anyhow = "1.0.98"
+fastrand = "2.3.0"
 pico-args = "0.5.0"
-rusqlite = {version = "0.27.0", features = ["bundled"]}
-termion = "1.5.6"
-time = {version = "0.3.9", features = ["local-offset"]}
+rusqlite = {version = "0.35.0", features = ["bundled"]}
+termion = "4.0.5"
+time = {version = "0.3.41", features = ["local-offset"]}
 
 [profile.release]
 lto = true

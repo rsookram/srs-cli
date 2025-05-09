@@ -2,7 +2,7 @@ use fastrand::Rng;
 
 pub trait Schedule {
     fn next_interval(
-        &self,
+        &mut self,
         previous_interval: u16,
         was_correct: Option<bool>,
         interval_modifier: u16,
@@ -20,7 +20,7 @@ pub struct LowKeyAnki {
 
 impl Schedule for LowKeyAnki {
     fn next_interval(
-        &self,
+        &mut self,
         previous_interval: u16,
         was_correct: Option<bool>,
         interval_modifier: u16,
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn first_answer() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(0, None, 100);
 
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn first_review() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(1, Some(true), 100);
 
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn apply_wrong_penalty() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(false), 100);
 
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn correct_answer() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 100);
 
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn increase_by_interval_modifier() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         let next = schedule.next_interval(50, Some(true), 200);
 
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn expect_previous_answer_for_large_interval() {
-        let schedule = new_schedule();
+        let mut schedule = new_schedule();
 
         schedule.next_interval(50, None, 200);
     }

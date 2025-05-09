@@ -293,7 +293,7 @@ impl Srs {
             return Ok(vec![]);
         }
 
-        let rng = Rng::new();
+        let mut rng = Rng::new();
 
         let mut cards_by_deck = vec![];
 
@@ -547,7 +547,7 @@ mod tests {
 
     impl Schedule for DoublingSchedule {
         fn next_interval(
-            &self,
+            &mut self,
             previous_interval: u16,
             was_correct: Option<bool>,
             interval_modifier: u16,
