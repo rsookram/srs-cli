@@ -1,12 +1,13 @@
 mod clock;
 pub mod editor;
 pub mod prompt;
+mod rand;
 mod schedule;
 
 use anyhow::bail;
 use anyhow::Result;
 use clock::Clock;
-use fastrand::Rng;
+use rand::Rng;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
 use rusqlite::types::Null;

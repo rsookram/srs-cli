@@ -1,4 +1,4 @@
-use fastrand::Rng;
+use crate::rand::Rng;
 
 pub trait Schedule {
     fn next_interval(
@@ -42,7 +42,7 @@ impl Schedule for LowKeyAnki {
 
                     let max_fuzz =
                         (previous_interval as f64 * self.fuzz_factor(previous_interval)) as u16;
-                    let fuzz = self.rng.u16(0..=max_fuzz);
+                    let fuzz = self.rng.u16(max_fuzz);
 
                     if self.rng.bool() {
                         next += fuzz;
@@ -113,7 +113,7 @@ mod tests {
 
         let next = schedule.next_interval(50, Some(false), 100);
 
-        assert_eq!(next, (50 as f64 * WRONG_ANSWER_PENALTY) as u16);
+        assert_eq!(next, (50. * WRONG_ANSWER_PENALTY) as u16);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
 
         let next = schedule.next_interval(50, Some(true), 100);
 
-        assert_eq!(next, 124);
+        assert_eq!(next, 125);
     }
 
     #[test]
@@ -131,7 +131,7 @@ mod tests {
 
         let next = schedule.next_interval(50, Some(true), 200);
 
-        assert_eq!(next, 249);
+        assert_eq!(next, 250);
     }
 
     #[test]
