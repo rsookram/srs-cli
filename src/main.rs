@@ -2,7 +2,7 @@ mod app;
 mod opt;
 
 use crate::app::App;
-use anyhow::Result;
+use srs_cli::error::Result;
 use srs_cli::Srs;
 use std::io;
 

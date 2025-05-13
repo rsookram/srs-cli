@@ -1,7 +1,6 @@
 //! Prompts displayed to the user to gather input.
 
-use anyhow::bail;
-use anyhow::Result;
+use crate::error::Result;
 use std::io::{stdin, stdout, Write};
 use termion::clear;
 use termion::event::{Event, Key};
@@ -25,7 +24,7 @@ pub fn binary(prompt: impl AsRef<str>) -> Result<bool> {
                 write!(stdout, "\r\n")?;
                 stdout.flush()?;
 
-                bail!("Exiting instead of answering...")
+                return Err("Exiting instead of answering...".into());
             }
             _ => continue,
         };
@@ -53,7 +52,7 @@ pub fn any(prompt: impl AsRef<str>) -> Result<()> {
                 write!(stdout, "\r\n")?;
                 stdout.flush()?;
 
-                bail!("Exiting instead of continuing...")
+                return Err("Exiting instead of continuing...".into());
             }
             Event::Key(_) => break,
             _ => continue,

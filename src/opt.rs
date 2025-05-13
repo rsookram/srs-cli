@@ -1,9 +1,7 @@
 //! Handling of command line arguments.
 
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Result;
 use pico_args::Arguments;
+use srs_cli::error::Result;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::process;
@@ -78,7 +76,7 @@ impl Opt {
 
         let subcommand = match args.subcommand()? {
             Some(s) => s,
-            None => bail!("missing subcommand"),
+            None => return Err("missing subcommand".into()),
         };
 
         let subcommand = match subcommand.as_ref() {
@@ -110,16 +108,14 @@ impl Opt {
                 card_id: args.value_from_str("--card-id")?,
                 deck_id: args.value_from_str("--deck-id")?,
             },
-            _ => bail!("unknown subcommand `{subcommand}`"),
+            _ => return Err("unknown subcommand `{subcommand}`".into()),
         };
 
         let remaining = args.finish();
         if remaining.is_empty() {
             Ok(Self { subcommand, path })
         } else {
-            Err(anyhow!(
-                "found arguments which weren't expected: {remaining:?}"
-            ))
+            Err("found arguments which weren't expected: {remaining:?}".into())
         }
     }
 }

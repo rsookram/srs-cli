@@ -1,7 +1,6 @@
 use crate::Srs;
-use anyhow::anyhow;
-use anyhow::Result;
 use srs_cli::editor;
+use srs_cli::error::Result;
 use srs_cli::prompt;
 use srs_cli::Card;
 use srs_cli::DeckStats;
@@ -236,10 +235,10 @@ fn open_editor(front: &str, back: &str) -> Result<(String, String)> {
     output
         .split_once(divider)
         .map(|(front, back)| (front.trim().to_string(), back.trim().to_string()))
-        .ok_or_else(|| anyhow!("Missing divider between front and back of card"))
+        .ok_or_else(|| "Missing divider between front and back of card".into())
         .and_then(|(front, back)| {
             if front.is_empty() {
-                Err(anyhow!("Front of card can't be empty"))
+                Err("Front of card can't be empty".into())
             } else {
                 Ok((front, back))
             }

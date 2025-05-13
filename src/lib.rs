@@ -1,12 +1,12 @@
 mod clock;
 pub mod editor;
+pub mod error;
 pub mod prompt;
 mod rand;
 mod schedule;
 
-use anyhow::bail;
-use anyhow::Result;
 use clock::Clock;
+use error::Result;
 use rand::Rng;
 use rusqlite::config::DbConfig;
 use rusqlite::params;
@@ -116,9 +116,7 @@ impl Srs {
             })
         })?;
 
-        let r: Result<_, rusqlite::Error> = iter.collect();
-
-        Ok(r?)
+        Ok(iter.collect::<core::result::Result<_, _>>()?)
     }
 
     pub fn get_deck(&self, id: u64) -> Result<Deck> {
@@ -137,7 +135,7 @@ impl Srs {
 
     pub fn create_deck(&mut self, name: &str) -> Result<()> {
         if name.is_empty() {
-            bail!("deck name can't be empty");
+            return Err("deck name can't be empty".into());
         }
 
         let now: u64 = (self.clock.now().unix_timestamp() * 1000)
@@ -160,9 +158,7 @@ impl Srs {
 
     pub fn update_interval_modifier(&mut self, id: u64, modifier: u16) -> Result<()> {
         if modifier < MIN_INTERVAL_MODIFIER {
-            bail!(format!(
-                "must be > {MIN_INTERVAL_MODIFIER}, given {modifier}"
-            ));
+            return Err(format!("must be > {MIN_INTERVAL_MODIFIER}, given {modifier}").into());
         }
 
         self.conn.execute(
@@ -260,9 +256,7 @@ impl Srs {
             })
         })?;
 
-        let r: Result<_, rusqlite::Error> = iter.collect();
-
-        Ok(r?)
+        Ok(iter.collect::<core::result::Result<_, _>>()?)
     }
 
     pub fn cards_to_review(&self) -> Result<Vec<(String, Vec<Card>)>> {
@@ -286,7 +280,7 @@ impl Srs {
             ))
         })?;
 
-        let r: Result<_, rusqlite::Error> = iter.collect();
+        let r: core::result::Result<_, _> = iter.collect();
 
         let cards: Vec<(String, Card)> = r?;
 
@@ -488,7 +482,7 @@ impl Srs {
             })
         })?;
 
-        let deck_stats: Result<_, rusqlite::Error> = iter.collect();
+        let deck_stats: core::result::Result<_, _> = iter.collect();
 
         Ok((global_stats, deck_stats?))
     }
@@ -539,7 +533,6 @@ impl Srs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::anyhow;
     use std::cell::Cell;
     use std::rc::Rc;
     use time::OffsetDateTime;
@@ -666,7 +659,7 @@ mod tests {
             .cards_to_review()?
             .into_iter()
             .next()
-            .ok_or(anyhow!("nothing to review"))?;
+            .expect("something to review");
         assert_eq!(for_review, ("testName".to_string(), vec![card]));
 
         let (global_stats, deck_stats) = srs.stats()?;
@@ -727,7 +720,7 @@ mod tests {
             .cards_to_review()?
             .into_iter()
             .next()
-            .ok_or(anyhow!("nothing to review"))?;
+            .expect("something to review");
         assert_eq!(for_review, ("another deck".to_string(), vec![card]));
 
         let (_, deck_stats) = srs.stats()?;
@@ -801,7 +794,7 @@ mod tests {
             .cards_to_review()?
             .into_iter()
             .next()
-            .ok_or(anyhow!("nothing to review"))?;
+            .expect("something to review");
         assert_eq!(for_review, ("testName".to_string(), vec![card]));
 
         Ok(())
@@ -927,7 +920,7 @@ mod tests {
             .card_previews()?
             .into_iter()
             .next()
-            .ok_or(anyhow!("no cards"))?;
+            .expect("something to review");
         assert!(preview.is_leech);
 
         Ok(())
@@ -936,17 +929,13 @@ mod tests {
     fn create_and_return_deck(srs: &mut Srs, name: &str) -> Result<Deck> {
         srs.create_deck(name)?;
 
-        srs.decks()?.pop().ok_or(anyhow!("no decks"))
+        Ok(srs.decks()?.pop().expect("have deck"))
     }
 
     fn create_and_return_card(srs: &mut Srs, deck: &Deck, front: &str, back: &str) -> Result<Card> {
         srs.create_card(deck.id, front.to_string(), back.to_string())?;
 
-        let preview = srs
-            .card_previews()?
-            .into_iter()
-            .next()
-            .ok_or(anyhow!("no cards"))?;
+        let preview = srs.card_previews()?.into_iter().next().expect("have cards");
 
         srs.get_card(preview.id)
     }

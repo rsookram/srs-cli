@@ -1,6 +1,6 @@
 //! Utilities for interacting with the user's default text editor.
 
-use anyhow::{bail, Result};
+use crate::error::Result;
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -47,7 +47,7 @@ fn get_input(mut file: &File, path: &Path, text: &str) -> Result<String> {
         .unwrap_or_else(|_| "vi".to_string());
 
     if !Command::new(&cmd).arg(path).status()?.success() {
-        bail!("failed to run {cmd}");
+        return Err("failed to run {cmd}".into());
     }
 
     let mut output = String::with_capacity(64);
