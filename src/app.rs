@@ -148,7 +148,7 @@ impl<W: io::Write> App<W> {
     fn review_card(&mut self, card: &Card) -> Result<bool> {
         writeln!(self.output, "{}\n", &card.front)?;
 
-        prompt::any("Press any key to show answer")?;
+        prompt::enter("Press enter to show answer")?;
 
         writeln!(self.output, "{}", "─".repeat(39))?;
 
