@@ -1,942 +1,378 @@
-mod clock;
 pub mod editor;
 pub mod error;
 pub mod prompt;
-mod rand;
-mod schedule;
+pub mod rand;
+mod tmp;
 
-use clock::Clock;
 use error::Result;
 use rand::Rng;
-use rusqlite::config::DbConfig;
-use rusqlite::params;
-use rusqlite::types::Null;
-use rusqlite::Connection;
-use rusqlite::OptionalExtension;
-use schedule::LowKeyAnki;
-use schedule::Schedule;
-use std::path::Path;
-use time::Duration;
-use time::UtcOffset;
+use std::{
+    fs::{self, File},
+    io::{BufWriter, Write},
+    path::Path,
+    str,
+};
 
-const MIN_INTERVAL_MODIFIER: u16 = 50;
-const AUTO_SUSPEND_INTERVAL: u16 = 365;
-const WRONG_ANSWERS_FOR_LEECH: u16 = 4;
+/// The reduction factor applied to the next interval when the card was answered incorrectly.
+const WRONG_ANSWER_PENALTY: f32 = 0.7;
+
+const MAX_CARD_COUNT: usize = u16::MAX as usize;
+// The file format can handle longer cards, but this should be more than enough.
+const MAX_CARD_LEN: usize = 4 * 1024;
 
 pub struct Srs {
-    conn: Connection,
-    schedule: Box<dyn Schedule>,
-    clock: Box<dyn Clock>,
-    offset: UtcOffset,
+    pub cards: Box<[Vec<u8>]>,
+    pub schedule: Box<[CardSchedule]>,
+    pub stats: Box<Stats>,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct Deck {
-    pub id: u64,
-    pub name: String,
-    pub interval_modifier: u16,
+impl Default for Srs {
+    fn default() -> Self {
+        Self {
+            cards: Box::new([]),
+            schedule: Box::new([]),
+            stats: Box::new([Stat::default(); STAT_ROW_COUNT]),
+        }
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
+pub struct CardSchedule {
+    pub most_recent_interval: u16,
+    pub scheduled_for: u16,
+}
+
+const STAT_ROW_COUNT: usize = 365;
+
+pub type Stats = [Stat; STAT_ROW_COUNT];
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Stat {
+    pub correct: u8,
+    pub wrong: u8,
+}
+
+pub type CardIndex = u16;
+
+#[derive(Debug)]
 pub struct Card {
-    pub id: u64,
-    pub front: String,
-    pub back: String,
+    pub front: Box<str>,
+    pub back: Box<str>,
+}
+
+impl Card {
+    const SEPARATOR: u8 = b'\0';
+    const SEPARATOR_STR: &[u8; 1] = b"\0";
 }
 
 #[derive(Debug)]
-pub struct CardPreview {
-    pub id: u64,
-    pub front: String,
-    pub is_leech: bool,
+pub struct Answer {
+    pub card_index: CardIndex,
+    pub is_correct: bool,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct GlobalStats {
-    pub active: u32,
-    pub suspended: u32,
-    pub leech: u16,
-    pub for_review: u16,
+pub fn add_card(
+    srs: Srs,
+    path: &Path,
+    now_in_epoch_days: u16,
+    front: String,
+    back: String,
+) -> Result<()> {
+    if srs.cards.len() >= MAX_CARD_COUNT {
+        return Err("reached card count limit".into());
+    }
+
+    let card: Vec<u8> = front
+        .as_bytes()
+        .iter()
+        .chain(Card::SEPARATOR_STR)
+        .chain(back.as_bytes())
+        .copied()
+        .collect();
+
+    if card.len() > MAX_CARD_LEN {
+        return Err("this card is too long".into());
+    }
+
+    let mut cards = srs.cards.into_vec();
+    cards.push(card);
+
+    let mut schedule = srs.schedule.into_vec();
+    schedule.push(CardSchedule {
+        most_recent_interval: 1,
+        scheduled_for: now_in_epoch_days + 1,
+    });
+
+    write(path, cards, &schedule, *srs.stats)?;
+
+    Ok(())
 }
 
-#[derive(Debug, PartialEq)]
-pub struct DeckStats {
-    pub name: String,
-    pub active: u32,
-    pub suspended: u32,
-    pub leech: u16,
-    pub correct: u16,
-    pub wrong: u16,
+pub fn edit_card(srs: Srs, path: &Path, idx: CardIndex, front: String, back: String) -> Result<()> {
+    let card: Vec<u8> = front
+        .as_bytes()
+        .iter()
+        .chain(Card::SEPARATOR_STR)
+        .chain(back.as_bytes())
+        .copied()
+        .collect();
+
+    if card.len() > MAX_CARD_LEN {
+        return Err("this card is too long".into());
+    }
+
+    let mut cards = srs.cards.into_vec();
+    cards[usize::from(idx)] = card;
+
+    write(path, cards, &srs.schedule.into_vec(), *srs.stats)?;
+
+    Ok(())
 }
 
-impl Srs {
-    pub fn open(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
+pub fn delete_card(srs: Srs, path: &Path, idx: CardIndex) -> Result<()> {
+    let mut cards = srs.cards.into_vec();
+    cards.remove(usize::from(idx));
 
-        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
+    let mut schedule = srs.schedule.into_vec();
+    schedule.remove(usize::from(idx));
 
-        Ok(Self {
-            conn,
-            clock: Box::new(clock::UtcClock),
-            schedule: Box::new(LowKeyAnki::new()),
-            offset: UtcOffset::current_local_offset()?,
-        })
-    }
+    write(path, cards, &schedule, *srs.stats)?;
 
-    #[cfg(test)]
-    fn open_in_memory(schedule: Box<dyn Schedule>, clock: Box<dyn Clock>) -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
+    Ok(())
+}
 
-        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
-
-        Ok(Self {
-            conn,
-            clock,
-            schedule,
-            offset: UtcOffset::UTC,
-        })
-    }
-
-    pub fn init(&mut self) -> Result<()> {
-        self.conn.execute_batch(include_str!("schema.sql"))?;
-
-        Ok(())
-    }
-
-    pub fn decks(&self) -> Result<Vec<Deck>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, intervalModifier FROM Deck ORDER BY id")?;
-
-        let iter = stmt.query_map([], |row| {
-            Ok(Deck {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                interval_modifier: row.get(2)?,
-            })
+pub fn card_front(bytes: &[u8]) -> Result<&str> {
+    let separator_idx = bytes
+        .iter()
+        .position(|&b| b == Card::SEPARATOR)
+        .ok_or_else(|| {
+            format!(
+                "no null separator in card string: len={}, str={:?}",
+                bytes.len(),
+                str::from_utf8(bytes),
+            )
         })?;
 
-        Ok(iter.collect::<core::result::Result<_, _>>()?)
-    }
+    Ok(str::from_utf8(&bytes[..separator_idx])?)
+}
 
-    pub fn get_deck(&self, id: u64) -> Result<Deck> {
-        Ok(self.conn.query_row(
-            "SELECT id, name, intervalModifier FROM Deck WHERE id = ?",
-            [id],
-            |row| {
-                Ok(Deck {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    interval_modifier: row.get(2)?,
-                })
-            },
-        )?)
-    }
+pub fn cards_to_review(srs: &Srs, now_in_epoch_days: u16) -> Vec<CardIndex> {
+    srs.schedule
+        .iter()
+        .enumerate()
+        .filter(|&(_, sched)| sched.scheduled_for <= now_in_epoch_days)
+        .map(|(i, _)| i as CardIndex)
+        .collect()
+}
 
-    pub fn create_deck(&mut self, name: &str) -> Result<()> {
-        if name.is_empty() {
-            return Err("deck name can't be empty".into());
-        }
+pub fn card(srs: &Srs, i: CardIndex) -> Result<Card> {
+    let card = srs
+        .cards
+        .get(usize::from(i))
+        .ok_or_else(|| format!("card {i} doesn't exist"))?;
 
-        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp");
-
-        self.conn.execute(
-            "INSERT INTO Deck(name, creationTimestamp) VALUES (?, ?)",
-            params![name, now],
-        )?;
-
-        Ok(())
-    }
-
-    pub fn delete_deck(&mut self, id: u64) -> Result<()> {
-        self.conn.execute("DELETE FROM Deck WHERE id = ?", [id])?;
-
-        Ok(())
-    }
-
-    pub fn update_interval_modifier(&mut self, id: u64, modifier: u16) -> Result<()> {
-        if modifier < MIN_INTERVAL_MODIFIER {
-            return Err(format!("must be > {MIN_INTERVAL_MODIFIER}, given {modifier}").into());
-        }
-
-        self.conn.execute(
-            "
-            UPDATE Deck
-            SET intervalModifier = ?
-            WHERE id = ?
-            ",
-            params![modifier, id],
-        )?;
-
-        Ok(())
-    }
-
-    pub fn get_card(&self, id: u64) -> Result<Card> {
-        Ok(self.conn.query_row(
-            "
-            SELECT id, front, back
-            FROM Card
-            WHERE id = ?
-            ",
-            [id],
-            |row| {
-                Ok(Card {
-                    id: row.get(0)?,
-                    front: row.get(1)?,
-                    back: row.get(2)?,
-                })
-            },
-        )?)
-    }
-
-    pub fn create_card(&mut self, deck_id: u64, front: String, back: String) -> Result<()> {
-        let tx = self.conn.transaction()?;
-
-        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp");
-
-        let card_id: u64 = tx.query_row(
-            "INSERT INTO Card(deckId, front, back, creationTimestamp) VALUES (?, ?, ?, ?) RETURNING id",
-            params![deck_id, front, back, now],
-            |row| row.get(0),
-        )?;
-
-        tx.execute(
-            "INSERT INTO Schedule(cardId, scheduledForTimestamp, intervalDays) VALUES (?, ?, ?)",
-            params![card_id, now, 0],
-        )?;
-
-        tx.commit()?;
-
-        Ok(())
-    }
-
-    pub fn delete_card(&mut self, id: u64) -> Result<()> {
-        self.conn.execute("DELETE FROM Card WHERE id = ?", [id])?;
-
-        Ok(())
-    }
-
-    pub fn update_card(&mut self, id: u64, front: String, back: String) -> Result<()> {
-        self.conn.execute(
-            "UPDATE Card SET front=?, back=? WHERE id=?",
-            params![front, back, id],
-        )?;
-
-        Ok(())
-    }
-
-    pub fn switch_deck(&mut self, card_id: u64, deck_id: u64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE Card SET deckId = ? WHERE id = ?",
-            [deck_id, card_id],
-        )?;
-
-        Ok(())
-    }
-
-    pub fn card_previews(&self) -> Result<Vec<CardPreview>> {
-        let mut stmt = self.conn.prepare(
-            "
-            SELECT id, front, isLeech
-            FROM Card
-            JOIN Schedule ON Card.id = Schedule.cardId
-            ORDER BY isLeech DESC, creationTimestamp DESC;
-            ",
-        )?;
-
-        let iter = stmt.query_map([], |row| {
-            Ok(CardPreview {
-                id: row.get(0)?,
-                front: row.get(1)?,
-                is_leech: row.get(2)?,
-            })
+    let separator_idx = card
+        .iter()
+        .position(|&b| b == Card::SEPARATOR)
+        .ok_or_else(|| {
+            format!(
+                "no null separator in card string: len={}, str={:?}",
+                card.len(),
+                str::from_utf8(card),
+            )
         })?;
 
-        Ok(iter.collect::<core::result::Result<_, _>>()?)
-    }
+    let mut front = card.clone();
+    let back = front.split_off(separator_idx);
 
-    pub fn cards_to_review(&self) -> Result<Vec<(String, Vec<Card>)>> {
-        let mut stmt = self.conn.prepare(
-            "
-            SELECT Deck.name, Card.id, Card.front, Card.back
-            FROM Card JOIN Schedule ON Card.id = Schedule.cardId JOIN Deck ON Card.deckId = Deck.id
-            WHERE isLeech = 0 AND scheduledForTimestamp < ?
-            ORDER BY Card.deckId, scheduledForTimestamp
-            ",
-        )?;
+    Ok(Card {
+        front: String::from_utf8(front)?.into_boxed_str(),
+        back: String::from_utf8(back)?.into_boxed_str(),
+    })
+}
 
-        let iter = stmt.query_map([self.start_of_tomorrow()?], |row| {
-            Ok((
-                row.get(0)?,
-                Card {
-                    id: row.get(1)?,
-                    front: row.get(2)?,
-                    back: row.get(3)?,
-                },
-            ))
-        })?;
+pub fn apply_answers(
+    srs: Srs,
+    path: &Path,
+    now_in_epoch_days: u16,
+    answers: &mut [Answer],
+) -> Result<()> {
+    answers.sort_by_key(|k| k.card_index);
 
-        let r: core::result::Result<_, _> = iter.collect();
+    let mut stats = srs.stats;
+    let mut schedule = srs.schedule.into_vec();
 
-        let cards: Vec<(String, Card)> = r?;
+    let mut rng = Rng::new();
 
-        if cards.is_empty() {
-            return Ok(vec![]);
-        }
+    for answer in answers {
+        let idx = answer.card_index;
 
-        let mut rng = Rng::new();
+        let sched = schedule
+            .get_mut(usize::from(idx))
+            .expect("card wasn't deleted during review");
+        if answer.is_correct {
+            let last_was_correct = sched.scheduled_for != 0;
 
-        let mut cards_by_deck = vec![];
+            let mut new_interval = if last_was_correct {
+                sched.most_recent_interval * 5
+            } else {
+                ((sched.most_recent_interval as f32) * WRONG_ANSWER_PENALTY).round() as u16
+            };
 
-        let mut current_deck = cards[0].0.clone();
-        let mut current_cards = vec![];
-        for (deck_name, card) in cards {
-            if deck_name != current_deck {
-                let old_deck_name = std::mem::take(&mut current_deck);
-                let mut cards = std::mem::take(&mut current_cards);
+            // Generate a number in -fuzz..=fuzz. This fuzz factor prevents cards from getting
+            // grouped together based on when they were added.
+            let max_fuzz = ((new_interval as f32) * 0.05).ceil() as u16;
+            let fuzz = rng.u16(max_fuzz);
 
-                current_deck = deck_name.clone();
-
-                rng.shuffle(&mut cards);
-                cards_by_deck.push((old_deck_name, cards));
+            if rng.bool() {
+                new_interval += fuzz;
+            } else {
+                new_interval -= fuzz;
             }
 
-            current_cards.push(card);
-        }
+            new_interval = new_interval.max(1);
 
-        rng.shuffle(&mut current_cards);
-        cards_by_deck.push((current_deck, current_cards));
-
-        Ok(cards_by_deck)
-    }
-
-    pub fn answer_correct(&mut self, card_id: u64) -> Result<()> {
-        let now_date_time = self.clock.now();
-
-        let now: u64 = (now_date_time.unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp");
-
-        let tx = self.conn.transaction()?;
-
-        let interval_days: u16 = tx
-            .query_row(
-                "SELECT intervalDays FROM Schedule WHERE cardId = ?",
-                [card_id],
-                |row| row.get(0),
-            )
-            .optional()?
-            .expect("card is not suspended");
-
-        let was_correct: Option<bool> = tx
-            .query_row(
-                "SELECT isCorrect FROM Answer WHERE cardId = ? ORDER BY timestamp DESC LIMIT 1",
-                [card_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        tx.execute(
-            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
-            params![card_id, true, now],
-        )?;
-
-        let interval_modifier: u16 = tx.query_row(
-            "SELECT intervalModifier FROM Deck JOIN Card ON Deck.id = Card.deckId WHERE Card.id = ?",
-            [card_id],
-            |row| row.get(0),
-        )?;
-
-        let num_days = self
-            .schedule
-            .next_interval(interval_days, was_correct, interval_modifier);
-
-        if num_days >= AUTO_SUSPEND_INTERVAL {
-            tx.execute(
-                "UPDATE Schedule SET scheduledForTimestamp = ?, intervalDays = ? WHERE cardId = ?",
-                params![Null, Null, card_id],
-            )?;
+            *sched = CardSchedule {
+                most_recent_interval: new_interval,
+                scheduled_for: now_in_epoch_days + new_interval,
+            }
         } else {
-            let num_days_ms: u64 = Duration::days(num_days.into())
-                .whole_milliseconds()
-                .try_into()
-                .expect("valid duration");
-
-            tx.execute(
-                "UPDATE Schedule SET scheduledForTimestamp = ?, intervalDays = ? WHERE cardId = ?",
-                params![now + num_days_ms, num_days, card_id],
-            )?;
-        }
-
-        tx.commit()?;
-
-        Ok(())
-    }
-
-    pub fn answer_wrong(&mut self, card_id: u64) -> Result<()> {
-        let now: u64 = (self.clock.now().unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp");
-
-        let tx = self.conn.transaction()?;
-
-        tx.execute(
-            "INSERT INTO Answer(cardId, isCorrect, timestamp) VALUES (?, ?, ?)",
-            params![card_id, false, now],
-        )?;
-
-        tx.execute(
-            "UPDATE Schedule SET scheduledForTimestamp = ? WHERE cardId = ?",
-            params![now, card_id],
-        )?;
-
-        let num_wrong: u16 = tx.query_row(
-            "SELECT COUNT(*) FROM Answer WHERE cardId = ? AND isCorrect = 0",
-            [card_id],
-            |row| row.get(0),
-        )?;
-
-        if num_wrong >= WRONG_ANSWERS_FOR_LEECH {
-            tx.execute(
-                "UPDATE Schedule SET isLeech = 1 WHERE cardId = ?",
-                [card_id],
-            )?;
-        }
-
-        tx.commit()?;
-
-        Ok(())
-    }
-
-    pub fn stats(&self) -> Result<(GlobalStats, Vec<DeckStats>)> {
-        let global_stats = self.conn.query_row(
-            "
-            SELECT
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE scheduledForTimestamp IS NOT NULL AND isLeech = 0) AS active,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE scheduledForTimestamp IS NULL AND isLeech = 0) AS suspended,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE isLeech = 1) AS leech,
-
-                (SELECT COUNT(*)
-                FROM Schedule
-                WHERE scheduledForTimestamp < :reviewSpanEnd) AS forReview
-            ",
-            [self.end_of_tomorrow()?],
-            |row| {
-                Ok(GlobalStats {
-                    active: row.get(0)?,
-                    suspended: row.get(1)?,
-                    leech: row.get(2)?,
-                    for_review: row.get(3)?,
-                })
-            },
-        )?;
-
-        let mut stmt = self.conn.prepare(
-            "
-            SELECT
-                name,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE Card.deckId = d.id AND scheduledForTimestamp IS NOT NULL AND isLeech = 0) AS active,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE Card.deckId = d.id AND scheduledForTimestamp IS NULL AND isLeech = 0) AS suspended,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Schedule ON Card.id = Schedule.cardId
-                WHERE Card.deckId = d.id AND isLeech = 1) AS leech,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Answer ON Card.id = Answer.cardId
-                WHERE Card.deckId = d.id AND isCorrect = 1 AND Answer.timestamp > :accuracySinceTimestamp) AS correct,
-
-                (SELECT COUNT(*)
-                FROM Card JOIN Answer ON Card.id = Answer.cardId
-                WHERE Card.deckId = d.id AND isCorrect = 0 AND Answer.timestamp > :accuracySinceTimestamp) AS wrong
-            FROM Deck AS d
-            ORDER BY name
-            "
-        )?;
-        let iter = stmt.query_map([self.thirty_days_ago()?], |row| {
-            Ok(DeckStats {
-                name: row.get(0)?,
-                active: row.get(1)?,
-                suspended: row.get(2)?,
-                leech: row.get(3)?,
-                correct: row.get(4)?,
-                wrong: row.get(5)?,
-            })
-        })?;
-
-        let deck_stats: core::result::Result<_, _> = iter.collect();
-
-        Ok((global_stats, deck_stats?))
-    }
-
-    fn start_of_tomorrow(&self) -> Result<u64> {
-        let now = self.clock.now().to_offset(self.offset);
-        let start_of_tomorrow = now
-            .date()
-            .saturating_add(Duration::days(1))
-            .with_hms(0, 0, 0)
-            .expect("valid time")
-            .assume_offset(now.offset());
-
-        Ok((start_of_tomorrow.unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp"))
-    }
-
-    fn end_of_tomorrow(&self) -> Result<u64> {
-        let now = self.clock.now().to_offset(self.offset);
-        let end_of_tomorrow = now
-            .date()
-            .saturating_add(Duration::days(1))
-            .with_hms(23, 59, 59)
-            .expect("valid time")
-            .assume_offset(now.offset());
-
-        Ok((end_of_tomorrow.unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp"))
-    }
-
-    fn thirty_days_ago(&self) -> Result<u64> {
-        let now = self.clock.now().to_offset(self.offset);
-        let end_of_tomorrow = now
-            .date()
-            .saturating_sub(Duration::days(30))
-            .with_hms(0, 0, 0)
-            .expect("valid time")
-            .assume_offset(now.offset());
-
-        Ok((end_of_tomorrow.unix_timestamp() * 1000)
-            .try_into()
-            .expect("valid timestamp"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
-    use time::OffsetDateTime;
-
-    struct DoublingSchedule;
-
-    impl Schedule for DoublingSchedule {
-        fn next_interval(
-            &mut self,
-            previous_interval: u16,
-            was_correct: Option<bool>,
-            interval_modifier: u16,
-        ) -> u16 {
-            match was_correct {
-                Some(true) => {
-                    (previous_interval as f64 * 2.0 * (interval_modifier as f64 / 100.0)) as u16
-                }
-                Some(false) => previous_interval / 2,
-                None => 1,
+            *sched = CardSchedule {
+                scheduled_for: 0,
+                ..*sched
             }
         }
-    }
 
-    struct TimeMachine {
-        now: Rc<Cell<OffsetDateTime>>,
-    }
-
-    impl Clock for TimeMachine {
-        fn now(&self) -> OffsetDateTime {
-            self.now.get()
-        }
-    }
-
-    fn new_srs() -> Result<(Srs, Rc<Cell<OffsetDateTime>>)> {
-        let now = Rc::new(Cell::new(OffsetDateTime::UNIX_EPOCH + Duration::weeks(10)));
-
-        let mut srs = Srs::open_in_memory(
-            Box::new(DoublingSchedule),
-            Box::new(TimeMachine { now: now.clone() }),
-        )?;
-        srs.init()?;
-
-        Ok((srs, now))
-    }
-
-    #[test]
-    fn empty_db() -> Result<()> {
-        let (srs, _) = new_srs()?;
-
-        assert_eq!(srs.decks()?.len(), 0);
-        assert_eq!(srs.card_previews()?.len(), 0);
-        assert_eq!(srs.cards_to_review()?.len(), 0);
-
-        let (global_stats, deck_stats) = srs.stats()?;
-        assert_eq!(
-            global_stats,
-            GlobalStats {
-                active: 0,
-                suspended: 0,
-                leech: 0,
-                for_review: 0,
-            }
-        );
-        assert_eq!(deck_stats.len(), 0);
-
-        Ok(())
-    }
-
-    #[test]
-    fn create_deck() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        assert_eq!(deck.name, "testName");
-        assert_eq!(deck.interval_modifier, 100);
-
-        assert_eq!(srs.get_deck(deck.id)?, deck);
-        assert_eq!(srs.decks()?, vec![deck]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn edit_deck() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-
-        srs.update_interval_modifier(deck.id, 120)?;
-
-        assert_eq!(srs.get_deck(deck.id)?.interval_modifier, 120);
-
-        Ok(())
-    }
-
-    #[test]
-    fn delete_deck() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-
-        srs.delete_deck(deck.id)?;
-
-        assert_eq!(srs.decks()?.len(), 0);
-
-        let (_, deck_stats) = srs.stats()?;
-        assert_eq!(deck_stats.len(), 0);
-
-        Ok(())
-    }
-
-    #[test]
-    fn create_card() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        assert_eq!(card.front, "front");
-        assert_eq!(card.back, "back");
-
-        let for_review = srs
-            .cards_to_review()?
-            .into_iter()
-            .next()
-            .expect("something to review");
-        assert_eq!(for_review, ("testName".to_string(), vec![card]));
-
-        let (global_stats, deck_stats) = srs.stats()?;
-        assert_eq!(
-            global_stats,
-            GlobalStats {
-                active: 1,
-                suspended: 0,
-                leech: 0,
-                for_review: 1,
-            }
-        );
-        assert_eq!(
-            deck_stats,
-            vec![DeckStats {
-                name: "testName".to_string(),
-                active: 1,
-                suspended: 0,
-                leech: 0,
+        let stat = match stats.get_mut(usize::from(sched.most_recent_interval)) {
+            Some(s) => s,
+            // The last bucket in stats covers all the intervals from that day onward.
+            None => stats.last_mut().unwrap(),
+        };
+        // Reset on wraparound
+        if stat.correct == u8::MAX || stat.wrong == u8::MAX {
+            *stat = Stat {
                 correct: 0,
                 wrong: 0,
-            }],
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn edit_card() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        srs.update_card(card.id, "new front".to_string(), "new back".to_string())?;
-
-        let edited_card = srs.get_card(card.id)?;
-        assert_eq!(edited_card.id, card.id);
-        assert_eq!(edited_card.front, "new front");
-        assert_eq!(edited_card.back, "new back");
-
-        Ok(())
-    }
-
-    #[test]
-    fn switch_card() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let deck2 = create_and_return_deck(&mut srs, "another deck")?;
-
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        srs.switch_deck(card.id, deck2.id)?;
-
-        let for_review = srs
-            .cards_to_review()?
-            .into_iter()
-            .next()
-            .expect("something to review");
-        assert_eq!(for_review, ("another deck".to_string(), vec![card]));
-
-        let (_, deck_stats) = srs.stats()?;
-        assert_eq!(
-            deck_stats,
-            vec![
-                DeckStats {
-                    name: "another deck".to_string(),
-                    active: 1,
-                    suspended: 0,
-                    leech: 0,
-                    correct: 0,
-                    wrong: 0,
-                },
-                DeckStats {
-                    name: "testName".to_string(),
-                    active: 0,
-                    suspended: 0,
-                    leech: 0,
-                    correct: 0,
-                    wrong: 0,
-                }
-            ],
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn delete_card() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        srs.delete_card(card.id)?;
-
-        let card = srs.get_card(card.id);
-
-        assert!(card.is_err(), "got a card {card:?}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn answering_correct_removes_from_queue() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        srs.answer_correct(card.id)?;
-
-        let for_review = srs.cards_to_review()?;
-        assert_eq!(for_review.len(), 0);
-
-        Ok(())
-    }
-
-    #[test]
-    fn answering_wrong_leaves_card_in_queue() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        srs.answer_wrong(card.id)?;
-
-        let for_review = srs
-            .cards_to_review()?
-            .into_iter()
-            .next()
-            .expect("something to review");
-        assert_eq!(for_review, ("testName".to_string(), vec![card]));
-
-        Ok(())
-    }
-
-    #[test]
-    fn answering_correct_increases_interval() -> Result<()> {
-        let (mut srs, now) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        let intervals = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256];
-
-        for next_interval in intervals {
-            now.set(now.get() + Duration::days(next_interval));
-            assert_scheduled(&srs, &card);
-
-            srs.answer_correct(card.id)?;
+            }
         }
 
-        now.set(now.get() + Duration::days(1024));
-        assert_not_scheduled(&srs, &card); // auto-suspend
-
-        Ok(())
-    }
-
-    #[test]
-    fn answering_correct_increases_interval_with_interval_modifier() -> Result<()> {
-        let (mut srs, now) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        srs.update_interval_modifier(deck.id, 200)?;
-
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        let intervals = [0, 1, 4, 16, 64, 256];
-
-        for next_interval in intervals {
-            now.set(now.get() + Duration::days(next_interval));
-            assert_scheduled(&srs, &card);
-
-            srs.answer_correct(card.id)?;
-        }
-
-        now.set(now.get() + Duration::days(1024));
-        assert_not_scheduled(&srs, &card); // auto-suspend
-
-        Ok(())
-    }
-
-    #[test]
-    fn answering_wrong_decreases_interval() -> Result<()> {
-        let (mut srs, now) = new_srs()?;
-
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
-
-        let forward_by_days = move |days| {
-            now.set(now.get() + Duration::days(days));
+        *stat = if answer.is_correct {
+            Stat {
+                correct: stat.correct + 1,
+                ..*stat
+            }
+        } else {
+            Stat {
+                wrong: stat.wrong + 1,
+                ..*stat
+            }
         };
-
-        srs.answer_correct(card.id)?;
-
-        forward_by_days(1);
-        assert_scheduled(&srs, &card);
-
-        srs.answer_correct(card.id)?;
-
-        forward_by_days(2);
-        assert_scheduled(&srs, &card);
-
-        srs.answer_correct(card.id)?;
-
-        forward_by_days(4);
-        assert_scheduled(&srs, &card);
-
-        srs.answer_wrong(card.id)?;
-
-        forward_by_days(2);
-        assert_scheduled(&srs, &card);
-
-        Ok(())
     }
 
-    fn assert_scheduled(srs: &Srs, card: &Card) {
-        let found = srs
-            .cards_to_review()
-            .unwrap()
-            .iter()
-            .flat_map(|(_, c)| c)
-            .any(|c| c.id == card.id);
+    write(path, srs.cards.into_vec(), &schedule, *stats)?;
 
-        assert!(found, "card isn't scheduled for review")
+    Ok(())
+}
+
+pub fn open(p: &Path) -> Result<Srs> {
+    const NUM_CARDS_BYTES: usize = 2;
+    const CARD_LENGTH_BYTES: usize = 2;
+
+    const SCHEDULE_ROW_BYTES: usize = 4;
+
+    const STAT_ROW_BYTES: usize = 2;
+    const STAT_BYTES: usize = STAT_ROW_BYTES * STAT_ROW_COUNT;
+
+    const MIN_SIZE_BYTES: usize = NUM_CARDS_BYTES + STAT_BYTES;
+
+    let bytes = std::fs::read(p)?;
+    if bytes.len() < MIN_SIZE_BYTES {
+        return Err(format!(
+            "read {} < {} bytes from {}",
+            bytes.len(),
+            MIN_SIZE_BYTES,
+            p.to_string_lossy(),
+        )
+        .into());
     }
 
-    fn assert_not_scheduled(srs: &Srs, card: &Card) {
-        let found = srs
-            .cards_to_review()
-            .unwrap()
-            .iter()
-            .flat_map(|(_, c)| c)
-            .any(|c| c.id == card.id);
+    let num_cards = usize::from(u16::from_le_bytes([bytes[0], bytes[1]]));
 
-        assert!(!found, "card is scheduled for review")
+    let mut stats = [Stat::default(); STAT_ROW_COUNT];
+    bytes[NUM_CARDS_BYTES..][..STAT_BYTES]
+        .chunks_exact(STAT_ROW_BYTES)
+        .enumerate()
+        .for_each(|(i, chunk)| {
+            stats[i] = Stat {
+                correct: chunk[0],
+                wrong: chunk[1],
+            }
+        });
+
+    let schedule_start_offset = MIN_SIZE_BYTES;
+
+    let schedule = bytes[schedule_start_offset..][..num_cards * SCHEDULE_ROW_BYTES]
+        .chunks_exact(SCHEDULE_ROW_BYTES)
+        .map(|chunk| CardSchedule {
+            most_recent_interval: u16::from_le_bytes([chunk[0], chunk[1]]),
+            scheduled_for: u16::from_le_bytes([chunk[2], chunk[3]]),
+        })
+        .collect();
+
+    let cards_start_offset = schedule_start_offset + (num_cards * SCHEDULE_ROW_BYTES);
+
+    let mut cards = Vec::with_capacity(num_cards);
+    let mut cards_bytes = &bytes[cards_start_offset..];
+    while !cards_bytes.is_empty() {
+        let length = usize::from(u16::from_le_bytes([cards_bytes[0], cards_bytes[1]]));
+        cards_bytes = &cards_bytes[CARD_LENGTH_BYTES..];
+
+        cards.push(cards_bytes[..length].to_vec());
+        cards_bytes = &cards_bytes[length..];
     }
 
-    #[test]
-    fn mark_leech_after_too_many_wrong_answers() -> Result<()> {
-        let (mut srs, _) = new_srs()?;
+    Ok(Srs {
+        cards: cards.into_boxed_slice(),
+        schedule,
+        stats: Box::new(stats),
+    })
+}
 
-        let deck = create_and_return_deck(&mut srs, "testName")?;
-        let card = create_and_return_card(&mut srs, &deck, "front", "back")?;
+pub fn write(
+    path: &Path,
+    cards: Vec<Vec<u8>>,
+    schedule: &[CardSchedule],
+    stats: Stats,
+) -> Result<()> {
+    let num_cards: u16 = cards.len().try_into().unwrap();
 
-        for _ in 1..=WRONG_ANSWERS_FOR_LEECH {
-            srs.answer_wrong(card.id)?;
+    let tmp_path = tmp::path();
+    {
+        let new_file = File::create(&tmp_path)?;
+        let mut new_buf = BufWriter::with_capacity(256 * 1024, new_file);
+
+        // Fixed header
+        new_buf.write_all(&num_cards.to_le_bytes())?;
+
+        for stat in stats {
+            new_buf.write_all(&[stat.correct, stat.wrong])?;
         }
 
-        let for_review = srs.cards_to_review()?;
-        assert_eq!(for_review.len(), 0);
+        // Schedule
+        for s in schedule {
+            new_buf.write_all(&s.most_recent_interval.to_le_bytes())?;
+            new_buf.write_all(&s.scheduled_for.to_le_bytes())?;
+        }
 
-        let preview = srs
-            .card_previews()?
-            .into_iter()
-            .next()
-            .expect("something to review");
-        assert!(preview.is_leech);
-
-        Ok(())
+        // Cards
+        for card in cards {
+            let length: u16 = card.len().try_into().unwrap();
+            new_buf.write_all(&length.to_le_bytes())?;
+            new_buf.write_all(&card)?;
+        }
     }
 
-    fn create_and_return_deck(srs: &mut Srs, name: &str) -> Result<Deck> {
-        srs.create_deck(name)?;
+    fs::rename(tmp_path, path)?;
 
-        Ok(srs.decks()?.pop().expect("have deck"))
-    }
-
-    fn create_and_return_card(srs: &mut Srs, deck: &Deck, front: &str, back: &str) -> Result<Card> {
-        srs.create_card(deck.id, front.to_string(), back.to_string())?;
-
-        let preview = srs.card_previews()?.into_iter().next().expect("have cards");
-
-        srs.get_card(preview.id)
-    }
+    Ok(())
 }

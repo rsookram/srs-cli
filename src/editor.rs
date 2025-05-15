@@ -1,20 +1,20 @@
 //! Utilities for interacting with the user's default text editor.
 
 use crate::error::Result;
+use crate::tmp;
 use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::time::SystemTime;
 
 /// Opens the default text editor with a file containing the given text. After closing the editor,
 /// the contents of the file are returned.
 pub fn edit(text: &str) -> Result<String> {
-    let path = temp_path()?;
+    let path = tmp::path();
 
     let temp_file = File::options()
         .read(true)
@@ -28,17 +28,6 @@ pub fn edit(text: &str) -> Result<String> {
     result
 }
 
-/// Returns a path to a file in the OS's temp directory. The file isn't guaranteed to exist
-/// already.
-fn temp_path() -> Result<PathBuf> {
-    let since_epoch = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-
-    let mut path = env::temp_dir();
-    path.push(format!("srs-cli_{}.txt", since_epoch.as_nanos()));
-
-    Ok(path)
-}
-
 fn get_input(mut file: &File, path: &Path, text: &str) -> Result<String> {
     write!(file, "{text}")?;
 
@@ -47,7 +36,7 @@ fn get_input(mut file: &File, path: &Path, text: &str) -> Result<String> {
         .unwrap_or_else(|_| "vi".to_string());
 
     if !Command::new(&cmd).arg(path).status()?.success() {
-        return Err("failed to run {cmd}".into());
+        return Err(format!("failed to run {cmd}").into());
     }
 
     let mut output = String::with_capacity(64);

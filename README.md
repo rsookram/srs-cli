@@ -28,18 +28,12 @@ OPTIONS:
     -p, --path <PATH>    The path of the database file [default: srs.db]
 
 SUBCOMMANDS:
-    add            Create a new card, and add it to a deck
-    cards          List all cards in all decks
-    create-deck    Create a new deck
-    decks          List all decks
+    add            Create a new card
+    cards          List all cards
     delete         Delete a card
-    delete-deck    Delete a deck, including all of its cards
     edit           Edit the contents of a card
-    init           Create an empty {name} database
-    int-mod        Edit a deck's interval modifier
     review         Review cards that are scheduled for review
-    stats          View statistics of decks and reviews
-    switch         Move a card between decks
+    stats          View statistics of reviews
 ```
 
 ## Building
