@@ -1,8 +1,8 @@
 //! Handling of command line arguments.
 
-use pico_args::Arguments;
 use srs_cli::error::Result;
-use std::convert::Infallible;
+use std::env::args_os;
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::process;
 
@@ -37,14 +37,14 @@ impl Opt {
     /// Gets [Opt] from the command line arguments. Prints the error message and quits the program
     /// in case of failure.
     pub fn from_args() -> Self {
-        let mut args = Arguments::from_env();
+        let args = Arguments::from_env();
 
-        if args.contains(["-h", "--help"]) {
+        if args.contains("-h") || args.contains("--help") {
             print_help();
             process::exit(0);
         }
 
-        if args.contains(["-V", "--version"]) {
+        if args.contains("-V") || args.contains("--version") {
             println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             process::exit(0);
         }
@@ -57,36 +57,31 @@ impl Opt {
 
     /// Parses [Arguments] into [Opt], resulting in an error when unexpected arguments are
     /// provided, or expected arguments are missing.
-    fn parse(mut args: Arguments) -> Result<Self> {
-        let path = args
-            .opt_value_from_os_str(["-p", "--path"], |p| Ok::<_, Infallible>(PathBuf::from(p)))?
-            .unwrap_or_else(|| PathBuf::from("srs.db"));
-
-        let subcommand = match args.subcommand()? {
-            Some(s) => s,
-            None => return Err("missing subcommand".into()),
+    fn parse(args: Arguments) -> Result<Self> {
+        let path = match args.opt_os_str("-p").or_else(|| args.opt_os_str("--path")) {
+            Some(p) => PathBuf::from(p),
+            None => PathBuf::from("srs.db"),
         };
 
-        let subcommand = match subcommand.as_ref() {
+        let subcommand = args
+            .subcommand()
+            .ok_or_else(|| "missing subcommand".to_string())?;
+
+        let subcommand = match subcommand {
             "add" => Subcommand::Add,
             "list" => Subcommand::List,
             "delete" => Subcommand::Delete {
-                card_id: args.value_from_str("--card-id")?,
+                card_id: args.value_as_u16("--card-id")?,
             },
             "edit" => Subcommand::Edit {
-                card_id: args.value_from_str("--card-id")?,
+                card_id: args.value_as_u16("--card-id")?,
             },
             "review" => Subcommand::Review,
             "stats" => Subcommand::Stats,
             _ => return Err(format!("unknown subcommand `{subcommand}`").into()),
         };
 
-        let remaining = args.finish();
-        if remaining.is_empty() {
-            Ok(Self { subcommand, path })
-        } else {
-            Err(format!("found arguments which weren't expected: {remaining:?}").into())
-        }
+        Ok(Self { subcommand, path })
     }
 }
 
@@ -116,4 +111,48 @@ SUBCOMMANDS:
         name = env!("CARGO_PKG_NAME"),
         version = env!("CARGO_PKG_VERSION"),
     );
+}
+
+#[derive(Debug)]
+struct Arguments {
+    args: Vec<OsString>,
+}
+
+impl Arguments {
+    fn from_env() -> Self {
+        Self {
+            args: args_os().skip(1).collect(),
+        }
+    }
+
+    fn contains(&self, key: &'static str) -> bool {
+        self.args.iter().any(|arg| arg == key)
+    }
+
+    fn subcommand(&self) -> Option<&str> {
+        let first = self.args.first()?.to_str()?;
+        if first.starts_with('-') {
+            return None;
+        }
+
+        Some(first)
+    }
+
+    fn opt_os_str(&self, key: &'static str) -> Option<&OsStr> {
+        let idx = self.args.iter().position(|arg| arg == key)?;
+        Some(self.args.get(idx + 1)?)
+    }
+
+    fn value_as_u16(&self, key: &'static str) -> Result<u16> {
+        let value_str = self
+            .opt_os_str(key)
+            .ok_or_else(|| format!("missing option '{key}'"))?;
+
+        let str = value_str
+            .to_str()
+            .ok_or_else(|| format!("invalid argument for '{key}' {value_str:?}"))?;
+        Ok(str
+            .parse::<u16>()
+            .map_err(|err| format!("failed to parse value '{str}' for key '{key}': {err}"))?)
+    }
 }
