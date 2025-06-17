@@ -60,7 +60,7 @@ fn list(srs: Srs) -> Result<()> {
     writeln!(out, "  ID | Front")?;
     writeln!(out, "-----|--------")?;
     for (i, card) in srs.cards.iter().enumerate() {
-        let front = srs_cli::card_front(card)?;
+        let front = srs_cli::card_front(card)?.replace('\n', "\\n");
         writeln!(out, "{i:4} | {}", front)?;
     }
 
