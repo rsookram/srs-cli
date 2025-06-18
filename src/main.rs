@@ -98,6 +98,9 @@ fn review(srs: Srs, path: &Path) -> Result<()> {
     let num_cards = card_indices.len();
 
     println!("{} cards to review", num_cards);
+    if num_cards == 0 {
+        return Ok(());
+    }
 
     let mut rng = Rng::new();
     rng.shuffle(&mut card_indices);
