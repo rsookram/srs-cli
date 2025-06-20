@@ -1,4 +1,5 @@
 mod opt;
+mod time;
 
 use srs_cli::editor;
 use srs_cli::error::Result;
@@ -10,7 +11,7 @@ use srs_cli::CardIndex;
 use srs_cli::Srs;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use time::now_in_epoch_days;
 
 fn main() -> Result<()> {
     let opt = opt::Opt::from_args();
@@ -170,12 +171,4 @@ fn open_editor(front: &str, back: &str) -> Result<(String, String)> {
                 Ok((front, back))
             }
         })
-}
-
-fn now_in_epoch_days() -> u16 {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("after unix epoch");
-
-    now.div_duration_f32(Duration::from_secs(24 * 60 * 60)) as u16
 }
