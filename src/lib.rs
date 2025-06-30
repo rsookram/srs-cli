@@ -124,7 +124,7 @@ pub fn edit_card(srs: Srs, path: &Path, idx: CardIndex, front: String, back: Str
     let mut cards = srs.cards.into_vec();
     cards[usize::from(idx)] = card;
 
-    write(path, cards, &srs.schedule.into_vec(), *srs.stats)?;
+    write(path, cards, &srs.schedule, *srs.stats)?;
 
     Ok(())
 }
@@ -200,7 +200,7 @@ pub fn apply_answers(
     answers.sort_by_key(|k| k.card_index);
 
     let mut stats = srs.stats;
-    let mut schedule = srs.schedule.into_vec();
+    let mut schedule = srs.schedule;
 
     let mut rng = Rng::new();
 
