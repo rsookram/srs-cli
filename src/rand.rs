@@ -4,14 +4,16 @@ pub struct Rng {
     state: u64,
 }
 
-impl Rng {
-    pub fn new() -> Self {
+impl Default for Rng {
+    fn default() -> Self {
         let seed =
             std::hash::BuildHasher::build_hasher(&std::collections::hash_map::RandomState::new())
                 .finish();
         Self { state: seed }
     }
+}
 
+impl Rng {
     #[cfg(test)]
     pub fn with_seed(seed: u64) -> Self {
         Self { state: seed }

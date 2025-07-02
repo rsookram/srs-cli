@@ -196,13 +196,12 @@ pub fn apply_answers(
     path: &Path,
     now_in_epoch_days: u16,
     answers: &mut [Answer],
+    rng: &mut Rng,
 ) -> Result<()> {
     answers.sort_by_key(|k| k.card_index);
 
     let mut stats = srs.stats;
     let mut schedule = srs.schedule;
-
-    let mut rng = Rng::new();
 
     for answer in answers {
         let idx = answer.card_index;

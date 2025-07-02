@@ -62,7 +62,7 @@ fn list(srs: Srs) -> Result<()> {
     writeln!(out, "-----|--------")?;
     for (i, card) in srs.cards.iter().enumerate() {
         let front = srs_cli::card_front(card)?.replace('\n', "\\n");
-        writeln!(out, "{i:4} | {}", front)?;
+        writeln!(out, "{i:4} | {front}")?;
     }
 
     Ok(())
@@ -98,12 +98,12 @@ fn review(srs: Srs, path: &Path) -> Result<()> {
     let mut card_indices = srs_cli::cards_to_review(&srs, now_in_epoch_days());
     let num_cards = card_indices.len();
 
-    println!("{} cards to review", num_cards);
+    println!("{num_cards} cards to review");
     if num_cards == 0 {
         return Ok(());
     }
 
-    let mut rng = Rng::new();
+    let mut rng = Rng::default();
     rng.shuffle(&mut card_indices);
 
     let mut answers = Vec::with_capacity(card_indices.len());
@@ -127,7 +127,7 @@ fn review(srs: Srs, path: &Path) -> Result<()> {
 
     println!("Finished review. Answered {num_correct}/{num_cards} correctly.");
 
-    srs_cli::apply_answers(srs, path, now_in_epoch_days(), &mut answers)
+    srs_cli::apply_answers(srs, path, now_in_epoch_days(), &mut answers, &mut rng)
 }
 
 fn review_card(card: &Card) -> Result<bool> {
