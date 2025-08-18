@@ -183,7 +183,8 @@ pub fn card(srs: &Srs, i: CardIndex) -> Result<Card> {
         })?;
 
     let mut front = card.clone();
-    let back = front.split_off(separator_idx);
+    let back = front.split_off(separator_idx + 1);
+    front.pop(); // Remove SEPARATOR
 
     Ok(Card {
         front: String::from_utf8(front)?.into_boxed_str(),
